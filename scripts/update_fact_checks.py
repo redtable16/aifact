@@ -21,8 +21,7 @@ def collect_politician_statements():
     
     for site in news_sites:
         try:
-            response = requests.get(site, headers={"User-Agent": 
-"Mozilla/5.0"})
+            response = requests.get(site, headers={"User-Agent": "Mozilla/5.0"})
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # 각 뉴스 사이트에 맞는 선택자 사용 (예시)
@@ -38,8 +37,7 @@ def collect_politician_statements():
             elif "naver.com" in site:
                 articles = soup.select(".sh_item")
                 for article in articles[:5]:
-                    title = 
-article.select_one(".sh_text_headline").text.strip()
+                    title = article.select_one(".sh_text_headline").text.strip()
                     link = article.select_one(".sh_text_headline")["href"]
                     statements.append({"title": title, "url": link})
         
@@ -51,8 +49,7 @@ article.select_one(".sh_text_headline").text.strip()
 # GPT-4를 사용하여 발언 팩트체크
 def fact_check_statement(statement):
     prompt = f"""
-    다음 정치 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 
-반환해주세요.
+    다음 정치 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
     
     발언: "{statement['title']}"
     출처: {statement['url']}
@@ -71,8 +68,7 @@ def fact_check_statement(statement):
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a fact-checking 
-expert for Korean political statements."},
+                {"role": "system", "content": "You are a fact-checking expert for Korean political statements."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
@@ -105,15 +101,13 @@ def generate_fact_check_card_html(fact_check):
         avatar_class = "choi-avatar"
     
     # 정치인 이름의 첫 글자 추출
-    first_letter = fact_check["politician"][0] if fact_check["politician"] 
-else "?"
+    first_letter = fact_check["politician"][0] if fact_check["politician"] else "?"
     
     card_html = f"""
     <!-- 허위 발언 카드 -->
     <div class="falsehood-card" data-party="{fact_check["party"]}">
         <div class="falsehood-header">
-            <div class="politician-avatar 
-{avatar_class}">{first_letter}</div>
+            <div class="politician-avatar {avatar_class}">{first_letter}</div>
             <div class="politician-info">
                 <div class="politician-name">
                     <span class="party-indicator {party_class}"></span>
@@ -148,8 +142,7 @@ def update_html_file():
         return
     
     # 3개의 팩트체크 카드 생성
-    num_cards = min(3, len(statements))  # 최대 3개, 수집된 발언이 3개 
-미만이면 해당 개수만큼
+    num_cards = min(3, len(statements))  # 최대 3개, 수집된 발언이 3개 미만이면 해당 개수만큼
     
     all_cards_html = ""
     processed_cards = 0
@@ -172,8 +165,7 @@ def update_html_file():
         all_cards_html += card_html
         processed_cards += 1
         
-        print(f"Processed card {processed_cards}/{num_cards}: 
-{fact_check['statement']}")
+        print(f"Processed card {processed_cards}/{num_cards}: {fact_check['statement']}")
     
     if processed_cards == 0:
         print("No cards were generated")
@@ -186,8 +178,7 @@ def update_html_file():
     # 새 카드를 추가할 위치 찾기 (<!-- FACT_CHECK_CARDS --> 주석 다음)
     insert_marker = "<!-- FACT_CHECK_CARDS -->"
     if insert_marker in content:
-        new_content = content.replace(insert_marker, 
-f"{insert_marker}\n{all_cards_html}")
+        new_content = content.replace(insert_marker, f"{insert_marker}\n{all_cards_html}")
         
         # 마지막 업데이트 날짜 갱신
         today = datetime.datetime.now().strftime("%Y.%m.%d")
@@ -197,8 +188,7 @@ f"{insert_marker}\n{all_cards_html}")
         with open('index.html', 'w', encoding='utf-8') as file:
             file.write(new_content)
     else:
-        print("Could not find marker <!-- FACT_CHECK_CARDS --> in the HTML 
-file")
+        print("Could not find marker <!-- FACT_CHECK_CARDS --> in the HTML file")
 
 if __name__ == "__main__":
     update_html_file()
