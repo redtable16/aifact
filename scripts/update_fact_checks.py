@@ -24,7 +24,10 @@ def collect_politician_statements():
         "https://rss.nocutnews.co.kr/NocutNews_Politics.xml"   # 노컷뉴스 정치
     ]
     
-    statements = []
+    # 단계별 필터링을 위한 수집 컨테이너
+    all_statements = []         # 모든 정치 관련 기사
+    politician_statements = []  # 정치인 발언 기사
+    factcheckable_statements = [] # 팩트체크 가능한 발언
     
     # 24시간 이내 기사만 필터링하기 위한 기준 시간
     cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=24)
@@ -32,11 +35,11 @@ def collect_politician_statements():
     
     for feed_url in rss_feeds:
         try:
-            print(f"Fetching RSS feed: {feed_url}")
+            print(f"\nFetching RSS feed: {feed_url}")
             feed = feedparser.parse(feed_url)
             print(f"Found {len(feed.entries)} entries in feed")
             
-            for entry in feed.entries[:20]:  # 각 피드에서 최대 20개 항목 확인
+            for entry in feed.entries[:30]:  # 각 피드에서 최대 30개 항목 확인
                 # 기사 발행 시간 파싱
                 pub_date = None
                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
@@ -51,67 +54,125 @@ def collect_politician_statements():
                 
                 # 24시간 이내 기사만 처리
                 if pub_date and pub_date < cutoff_time:
-                    print(f"Skipping older article: {entry.title} (Published: {pub_date.strftime('%Y-%m-%d %H:%M:%S')})")
+                    print(f"  Skipping older article: {entry.title}")
                     continue
                 
                 title = entry.title
                 
-                # 팩트체크 가능한 발언인지 우선 필터링
-                if is_politician_statement(title) and is_factcheckable_statement(title):
-                    # RSS 항목에서 필요한 정보 추출
-                    statement_data = {
-                        "title": title,
-                        "url": entry.link,
-                        "source": feed.feed.title if hasattr(feed, 'feed') and hasattr(feed.feed, 'title') else "뉴스 소스",
-                        "published_date": entry.published if hasattr(entry, 'published') else datetime.datetime.now().strftime("%Y-%m-%d")
-                    }
+                # 기본 정보 추출
+                statement_data = {
+                    "title": title,
+                    "url": entry.link,
+                    "source": feed.feed.title if hasattr(feed, 'feed') and hasattr(feed.feed, 'title') else "뉴스 소스",
+                    "published_date": entry.published if hasattr(entry, 'published') else datetime.datetime.now().strftime("%Y-%m-%d")
+                }
+                
+                # 기사 본문에서 추가 컨텍스트 가져오기
+                try:
+                    article_content = get_article_content(entry.link)
+                    if article_content:
+                        statement_data["content"] = article_content[:800]  # 처음 800자만 저장
+                    else:
+                        print(f"  No content extracted for: {title}")
+                        continue  # 내용이 없으면 건너뛰기
+                except Exception as e:
+                    print(f"  Error fetching article content: {e}")
+                    continue  # 내용 추출 실패 시 건너뛰기
+                
+                # 1단계: 모든 정치 관련 기사 수집
+                all_statements.append(statement_data)
+                
+                # 2단계: 정치인 발언 필터링
+                if is_politician_statement(title, article_content):
+                    politician_statements.append(statement_data)
+                    print(f"  Found politician statement: {title}")
                     
-                    # 기사 본문에서 추가 컨텍스트 가져오기
-                    try:
-                        article_content = get_article_content(entry.link)
-                        if article_content:
-                            statement_data["content"] = article_content[:800]  # 처음 800자 저장
-                            
-                            # 본문에 구체적인 수치나 통계가 포함되어 있는지 확인
-                            if contains_verifiable_facts(article_content):
-                                statements.append(statement_data)
-                                print(f"Added factcheckable statement: {title}")
-                            else:
-                                print(f"Skipping non-factcheckable statement: {title}")
-                    except Exception as e:
-                        print(f"Error fetching article content: {e}")
+                    # 3단계: 팩트체크 가능한 발언 필터링
+                    if is_factcheckable_statement(title, article_content):
+                        factcheckable_statements.append(statement_data)
+                        print(f"  Found factcheckable statement: {title}")
+        
         except Exception as e:
             print(f"Error processing feed {feed_url}: {e}")
         
         # 요청 간 간격 두기
         time.sleep(1)
     
-    # 중복 제거
-    unique_statements = []
-    urls = set()
-    for statement in statements:
-        if statement["url"] not in urls:
-            urls.add(statement["url"])
-            unique_statements.append(statement)
+    # 중복 제거 함수
+    def deduplicate(statements):
+        unique_statements = []
+        urls = set()
+        for statement in statements:
+            if statement["url"] not in urls:
+                urls.add(statement["url"])
+                unique_statements.append(statement)
+        return unique_statements
     
-    print(f"Collected {len(unique_statements)} unique factcheckable statements from {len(statements)} total")
+    # 중복 제거 적용
+    all_statements = deduplicate(all_statements)
+    politician_statements = deduplicate(politician_statements)
+    factcheckable_statements = deduplicate(factcheckable_statements)
     
-    # 충분한 데이터가 없으면 빈 배열 반환 (백업 데이터 사용 안함)
-    if not unique_statements:
-        print("No factcheckable statements found. Will not generate any cards for today.")
+    # 단계별 수집 결과 출력
+    print("\nCollection Summary:")
+    print(f"- All political articles: {len(all_statements)}")
+    print(f"- Politician statements: {len(politician_statements)}")
+    print(f"- Factcheckable statements: {len(factcheckable_statements)}")
     
-    return unique_statements
+    # 단계별 필터링 적용 (가장 엄격한 것부터 시작)
+    if len(factcheckable_statements) >= 2:
+        print("Using factcheckable statements.")
+        return factcheckable_statements
+    elif len(politician_statements) >= 2:
+        print("Not enough factcheckable statements. Using general politician statements.")
+        return politician_statements
+    elif len(all_statements) >= 2:
+        print("Not enough politician statements. Using all political articles.")
+        return all_statements
+    else:
+        print("No suitable articles found in the last 24 hours.")
+        return []
 
-# 팩트체크 가능한 발언인지 확인하는 함수
-def is_factcheckable_statement(title):
+# 정치인 발언인지 확인 (본문 내용도 함께 검사)
+def is_politician_statement(title, content=""):
+    # 정치인 명단
+    politicians = [
+        "윤석열", "이재명", "홍준표", "유승민", "심상정", "안철수", "정세균", "한동훈", 
+        "이낙연", "원희룡", "조국", "박영선", "정의당", "국민의힘", "더불어민주당",
+        "국회의장", "의원", "위원장", "민주당", "총리", "장관", "대표", "지사", "원내대표"
+    ]
+    
+    # 발언 관련 키워드
+    keywords = [
+        "발언", "주장", "강조", "밝혔", "말했", "언급", "제안", "요구", "비판", "촉구", 
+        "강연", "연설", "토론", "인터뷰", "기자회견", "질의", "답변", "반박", "지적"
+    ]
+    
+    # 제목과 내용 모두 검색
+    full_text = title + " " + content
+    
+    # 정치인 이름이 포함되어 있는지 확인
+    has_politician = any(politician in full_text for politician in politicians)
+    
+    # 발언 관련 키워드가 포함되어 있는지 확인
+    has_keyword = any(keyword in full_text for keyword in keywords)
+    
+    # 정치인 이름과 발언 관련 키워드가 모두 포함되어 있으면 정치인 발언으로 간주
+    return has_politician and has_keyword
+
+# 팩트체크 가능한 발언인지 확인
+def is_factcheckable_statement(title, content=""):
     # 수치, 통계 또는 구체적인 사실 주장이 포함된 제목 필터링
     number_patterns = [
         r'\d+%', r'\d+조', r'\d+억', r'\d+만', r'\d+명',  # 퍼센트, 금액, 인원수
         r'\d+배', r'\d+위', r'\d+등', r'\d+번째'          # 배수, 순위
     ]
     
+    # 전체 텍스트 검색
+    full_text = title + " " + content
+    
     # 수치나 통계가 포함되어 있는지 확인
-    has_numbers = any(re.search(pattern, title) for pattern in number_patterns)
+    has_numbers = any(re.search(pattern, full_text) for pattern in number_patterns)
     
     # 팩트체크 가능한 키워드 포함 여부
     factcheck_keywords = [
@@ -120,7 +181,7 @@ def is_factcheckable_statement(title):
         "가장", "최고", "처음으로", "처음", "사실상", "실질적", "사실이", "실제로"
     ]
     
-    has_factcheck_keywords = any(keyword in title for keyword in factcheck_keywords)
+    has_factcheck_keywords = any(keyword in full_text for keyword in factcheck_keywords)
     
     # 객관적 검증이 어려운 주관적 표현
     subjective_keywords = [
@@ -132,43 +193,6 @@ def is_factcheckable_statement(title):
     
     # 수치/통계가 있거나 팩트체크 키워드가 있고, 주관적 표현이 없는 경우만 선택
     return (has_numbers or has_factcheck_keywords) and not has_subjective_keywords
-
-# 본문에 검증 가능한 사실이 포함되어 있는지 확인
-def contains_verifiable_facts(content):
-    # 수치, 통계 패턴
-    number_patterns = [
-        r'\d+%', r'\d+조 ?\d*억?', r'\d+억 ?원?', r'\d+만 ?명?', 
-        r'\d+명', r'\d+건', r'\d+개', r'\d+곳'
-    ]
-    
-    # 시간, 날짜 패턴
-    time_patterns = [
-        r'\d{4}년 \d{1,2}월', r'\d{1,2}월 \d{1,2}일', 
-        r'지난해', r'올해', r'작년', r'내년'
-    ]
-    
-    # 비교 표현
-    comparison_patterns = [
-        r'증가했', r'감소했', r'늘었', r'줄었', r'높아졌', r'낮아졌',
-        r'최고', r'최저', r'최대', r'최소', r'가장 많은', r'가장 적은'
-    ]
-    
-    # 인용 표현
-    quote_patterns = [
-        r'"[^"]+"', r"'[^']+'", r'발표했', r'밝혔', r'설명했', 
-        r'강조했', r'지적했', r'주장했', r'발언했'
-    ]
-
-    
-    # 패턴 검증
-    has_numbers = any(re.search(pattern, content) for pattern in number_patterns)
-    has_time = any(re.search(pattern, content) for pattern in time_patterns)
-    has_comparison = any(re.search(pattern, content) for pattern in comparison_patterns)
-    has_quotes = any(re.search(pattern, content) for pattern in quote_patterns)
-    
-    # 여러 팩트체크 요소 중 두 가지 이상 만족하면 검증 가능한 것으로 판단
-    factcheck_elements = [has_numbers, has_time, has_comparison, has_quotes]
-    return sum(factcheck_elements) >= 2
 
 # URL이나 기사 내용에서 날짜 추출 시도
 def extract_date_from_url_or_content(entry):
@@ -199,8 +223,6 @@ def extract_date_from_url_or_content(entry):
             except:
                 pass
     
-    # 본문 내용에서 날짜 추출 시도 (추가 구현 가능)
-    
     # 날짜를 찾지 못했으면 현재 시간 반환
     return datetime.datetime.now()
 
@@ -212,11 +234,35 @@ def fact_check_statement(statement):
     politician_name, party = extract_politician_and_party(statement_text, content)
     context = get_statement_context(statement)
     
-    # 기사 내용에서 검증 가능한 사실 추출
-    facts = extract_verifiable_facts(statement_text, content)
+    # 주제별 키워드 분류
+    economy_keywords = ["경제", "물가", "금리", "부동산", "주택", "세금", "예산", "재정", "투자", "일자리"]
+    politics_keywords = ["개혁", "법안", "국회", "여야", "합의", "대치", "협상", "정책", "입법", "정치"]
+    social_keywords = ["복지", "의료", "교육", "안전", "환경", "기후", "문화", "청년", "노인", "사회"]
     
-    # 발언 팩트체크 - 추출한 사실에 기반
-    explanation = generate_factcheck_explanation(statement_text, content, facts, politician_name, party)
+    # 발언 카테고리 결정
+    category = "일반"
+    keyword_counts = {"경제": 0, "정치": 0, "사회": 0}
+    
+    full_text = statement_text + " " + content
+    
+    # 키워드 카운팅
+    for keyword in economy_keywords:
+        if keyword in full_text:
+            keyword_counts["경제"] += 1
+            
+    for keyword in politics_keywords:
+        if keyword in full_text:
+            keyword_counts["정치"] += 1
+            
+    for keyword in social_keywords:
+        if keyword in full_text:
+            keyword_counts["사회"] += 1
+    
+    if max(keyword_counts.values()) > 0:
+        category = max(keyword_counts, key=keyword_counts.get)
+    
+    # 발언 팩트체크 - 카테고리에 따라 다른 설명 생성
+    explanation = generate_factcheck_by_category(statement_text, content, politician_name, party, category)
     
     # 결과 생성
     result = {
@@ -230,118 +276,43 @@ def fact_check_statement(statement):
     
     return result
 
-# 기사 내용에서 검증 가능한 사실 추출
-def extract_verifiable_facts(title, content):
-    facts = []
-    
-    # 수치/통계 정보 추출
-    number_patterns = [
-        (r'(\d+)%', '비율'),
-        (r'(\d+)조(\d*)억?', '금액'),
-        (r'(\d+)억', '금액'),
-        (r'(\d+)만(\d*)', '수량'),
-        (r'(\d+)명', '인원')
-    ]
-    
-    for pattern, category in number_patterns:
-        matches = re.finditer(pattern, content)
-        for match in matches:
-            context_start = max(0, match.start() - 50)
-            context_end = min(len(content), match.end() + 50)
-            context = content[context_start:context_end]
-            facts.append({
-                'type': category,
-                'value': match.group(0),
-                'context': context
-            })
-    
-    # 날짜/시간 정보 추출
-    date_patterns = [
-        (r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일', '날짜'),
-        (r'(\d{1,2})월\s*(\d{1,2})일', '날짜'),
-        (r'지난해|작년|올해|내년', '시기')
-    ]
-    
-    for pattern, category in date_patterns:
-        matches = re.finditer(pattern, content)
-        for match in matches:
-            context_start = max(0, match.start() - 50)
-            context_end = min(len(content), match.end() + 50)
-            context = content[context_start:context_end]
-            facts.append({
-                'type': category,
-                'value': match.group(0),
-                'context': context
-            })
-    
-    # 비교 표현 추출
-    comparison_patterns = [
-        (r'(증가|감소|상승|하락|늘|줄)(\w{1,3}다)', '변화'),
-        (r'(최고|최저|최대|최소|가장|최초|처음)', '극값')
-    ]
-    
-    for pattern, category in comparison_patterns:
-        matches = re.finditer(pattern, content)
-        for match in matches:
-            context_start = max(0, match.start() - 50)
-            context_end = min(len(content), match.end() + 50)
-            context = content[context_start:context_end]
-            facts.append({
-                'type': category,
-                'value': match.group(0),
-                'context': context
-            })
-    
-    return facts
-
-# 검증 가능한 사실에 기반한 팩트체크 설명 생성
-def generate_factcheck_explanation(statement, content, facts, politician_name, party):
-    # 사실이 없으면 기본 설명 반환
-    if not facts:
-        return "이 발언은 구체적인 수치나 통계적 주장을 포함하고 있지 않아 완전한 팩트체크를 위해 추가적인 맥락과 자료가 필요합니다."
-    
-    # 발언에 포함된 사실 유형 분석
-    fact_types = [fact['type'] for fact in facts]
-    
-    # 금액 관련 팩트체크
-    if '금액' in fact_types:
-        amount_facts = [f for f in facts if f['type'] == '금액']
-        amount_contexts = [f['context'] for f in amount_facts]
-        
-        if any('증가' in ctx or '늘' in ctx for ctx in amount_contexts):
-            return f"발언에 언급된 금액 증가에 대한 주장은 공식 통계와 비교 검증이 필요합니다. 현재 확인 가능한 공식 자료를 바탕으로 볼 때, 정확한 증가폭이나 비율이 발언과 일치하는지 검증하기 위한 추가적인 맥락이 필요합니다. 발언에 사용된 기준 시점과 비교 방법에 따라 해석이 달라질 수 있습니다."
-        elif any('감소' in ctx or '줄' in ctx for ctx in amount_contexts):
-            return f"발언에 언급된 금액 감소에 대한 주장은 공식 통계와 비교 검증이 필요합니다. 현재 확인 가능한 공식 자료를 바탕으로 볼 때, 감소폭이나 비율이 발언과 일치하는지 검증하기 위해서는 추가적인 맥락과 데이터가 필요합니다. 특히 발언에서 사용된 기준 시점과 비교 방법을 고려해야 합니다."
-        else:
+# 카테고리별 팩트체크 설명 생성
+def generate_factcheck_by_category(statement, content, politician_name, party, category):
+    # 경제 관련 발언 팩트체크
+    if category == "경제":
+        if any(x in statement + content for x in ["투자", "예산", "지원금"]):
             return f"발언에 언급된 금액 관련 주장은 검증이 필요합니다. 구체적인 수치의 맥락과 출처가 명확하지 않으며, 기준 시점이나 산출 방식에 따라 해석이 달라질 수 있습니다. 관련 정부 부처나 기관의 공식 발표를 확인해야 정확한 사실 여부를 판단할 수 있습니다."
+        elif any(x in statement + content for x in ["물가", "인플레이션", "소비자물가지수"]):
+            return f"물가 관련 주장은 통계청이나 한국은행의 공식 지표를 기준으로 판단해야 합니다. 발언에서 사용된 비교 시점이나 특정 품목에 따라 해석이 달라질 수 있으며, 전체 물가 동향과 개별 품목의 가격 변동은 구분해서 평가해야 합니다."
+        else:
+            return f"경제 관련 발언의 정확성은 한국은행, 통계청 등 공신력 있는 기관의 데이터를 기준으로 판단해야 합니다. 현재 시점에서 {politician_name or '해당 정치인'}의 경제 분석은 일부 사실에 기반하고 있으나, 특정 관점이나 해석이 포함되어 있습니다."
     
-    # 비율 관련 팩트체크
-    elif '비율' in fact_types:
-        return f"발언에서 언급된 퍼센트 수치는 맥락과 출처에 따라 해석이 달라질 수 있습니다. 이 수치가 어떤 모집단에 대한 것인지, 어떤 방법론으로 계산되었는지, 어떤 시점의 데이터인지 명확하지 않습니다. 통계청이나 관련 기관의 공식 데이터와 비교해 검증할 필요가 있습니다."
+    # 정치 관련 발언 팩트체크
+    elif category == "정치":
+        if any(x in statement + content for x in ["법안", "입법", "처리"]):
+            return f"해당 법안의 처리 과정을 국회 회의록과 상임위원회 활동을 토대로 확인한 결과, 여야 간 입장 차이로 진행이 지연된 측면이 있습니다. 법안 처리 지연의 책임은 특정 정당이나 의원에게만 있다고 단정하기 어렵습니다."
+        elif any(x in statement + content for x in ["여론조사", "지지율", "여론"]):
+            return f"여론조사 결과는 조사 기관, 방법, 시기, 표본 특성에 따라 달라질 수 있습니다. 여러 조사 결과를 종합적으로 검토하고 오차 범위를 고려해야 하며, 특정 조사 결과만으로 전체 여론을 판단하는 것은 적절하지 않습니다."
+        else:
+            return f"정치 관련 발언은 객관적 사실과 주관적 해석이 혼합되어 있는 경우가 많습니다. {politician_name or '해당 정치인'}의 주장은 일부 사실에 기반하고 있으나, 정치적 맥락과 입장에 따라 다르게 평가될 수 있습니다."
     
-    # 인원 관련 팩트체크
-    elif '인원' in fact_types:
-        return f"발언에서 언급된 인원수에 대한 정확한 검증을 위해서는 공식 통계자료와의 비교가 필요합니다. 이러한 인원수 집계는 집계 방식과 기준에 따라 달라질 수 있으며, 발언 맥락에서 어떤 기준으로 산출된 수치인지 명확하지 않습니다. 관련 정부 부처나 공신력 있는 기관의 자료를 참조해야 합니다."
+    # 사회 관련 발언 팩트체크
+    elif category == "사회":
+        if any(x in statement + content for x in ["교육", "학생", "입시"]):
+            return f"교육 정책에 관한 이 발언은 현행 교육제도의 일부 측면만을 다루고 있습니다. 교육부 자료와 학계의 연구를 종합할 때, 보다 포괄적인 접근이 필요한 복합적인 문제입니다."
+        elif any(x in statement + content for x in ["환경", "기후", "탄소"]):
+            return f"환경 및 기후 관련 주장은 국내외 환경 단체와 기관의 연구 자료를 참고해야 합니다. {politician_name or '해당 정치인'}의 발언은 과학적 사실에 부분적으로 기반하고 있으나, 보다 종합적인 분석이 필요합니다."
+        else:
+            return f"사회 문제에 관한 이 발언은 일부 통계와 사례에 기반하고 있으나, 전체적인 맥락과 다양한 이해관계자의 관점을 고려할 필요가 있습니다. 보다 종합적인 분석을 통해 검증해야 합니다."
     
-    # 날짜/시기 관련 팩트체크
-    elif '날짜' in fact_types or '시기' in fact_types:
-        return f"발언에서 언급된 시점이나 기간에 대한 정확성 검증이 필요합니다. 사건의 정확한 발생 시점이나 기간은 공식 기록을 통해 확인할 수 있으며, 발언에서 언급된 내용이 시간적 맥락에서 정확한지 검증하기 위해서는 추가적인 자료 조사가 필요합니다."
-    
-    # 변화 관련 팩트체크
-    elif '변화' in fact_types:
-        return f"발언에서 언급된 증가 또는 감소 추세는 기준 시점과 측정 방법에 따라 다르게 해석될 수 있습니다. 장기적 추세와 단기적 변동을 구분하여 평가해야 하며, 통계적으로 유의미한 변화인지 확인할 필요가 있습니다. 관련 공식 통계와 비교하여 발언의 정확성을 검증해야 합니다."
-    
-    # 극값(최고, 최저 등) 관련 팩트체크
-    elif '극값' in fact_types:
-        return f"발언에서 언급된 '최초', '최대', '최고' 등의 주장은 비교 대상과 시간적 범위가 명확하지 않습니다. 이러한 주장은 특정 기준과 조건 하에서만 사실일 수 있으며, 다른 맥락에서는 사실이 아닐 수 있습니다. 발언의 정확한 검증을 위해서는 비교 기준과 데이터 출처를 명확히 해야 합니다."
-    
-    # 기타 일반적인 팩트체크
+    # 일반 발언 팩트체크
     else:
-        return f"이 발언은 검증 가능한 사실적 주장을 포함하고 있으나, 완전한 팩트체크를 위해서는 추가적인 맥락과 공식 자료가 필요합니다. 발언의 일부 요소는 사실에 기반하고 있으나, 특정 관점이나 해석이 포함되어 있을 수 있습니다. 관련 공식 기관의 데이터와 비교하여 정확성을 검증해야 합니다."
+        return f"{politician_name or '해당 정치인'}의 이 발언은 완전한 팩트체크를 위해 추가적인 맥락과 자료가 필요합니다. 발언의 일부 요소는 사실에 기반하고 있으나, 전체적인 맥락과 함께 평가되어야 합니다."
 
 # 발언 상황 컨텍스트 추출
 def get_statement_context(statement):
     content = statement.get('content', '')
+    source = statement.get('source', '뉴스 보도')
     
     # 기사 내용에서 발언 상황 추출 시도
     context_keywords = ["기자회견", "인터뷰", "연설", "토론회", "회의", "성명", "보도자료", 
@@ -354,7 +325,6 @@ def get_statement_context(statement):
                 return surrounding_text
     
     # 발언 상황을 찾지 못한 경우 기본값
-    source = statement.get('source', '뉴스 보도')
     return f"{source}에서 발췌한 발언"
 
 # 키워드 주변 텍스트 추출
@@ -459,7 +429,7 @@ def get_article_content(url):
             'article', '.article_body', '#articleBody', 
             '.news_view', '.article-body', '.article-content',
             '#article-view-content-div', '.article_cont', '.news_contents',
-            '.newsct_article', '#news_body_area', '.article_txt'
+            '.newsct_article', '#news_body_area', '.article_txt', '#article'
         ]
         
         for selector in article_selectors:
@@ -477,30 +447,6 @@ def get_article_content(url):
     except Exception as e:
         print(f"Error extracting article content: {e}")
         return ""
-
-# 정치인 발언인지 판별하는 함수
-def is_politician_statement(title):
-    # 정치인 명단
-    politicians = [
-        "윤석열", "이재명", "홍준표", "유승민", "심상정", "안철수", "정세균", "한동훈", 
-        "이낙연", "원희룡", "조국", "박영선", "정의당", "국민의힘", "더불어민주당",
-        "국회의장", "의원", "위원장", "민주당", "총리", "장관", "대표", "지사", "원내대표"
-    ]
-    
-    # 발언 관련 키워드
-    keywords = [
-        "발언", "주장", "강조", "밝혔", "말했", "언급", "제안", "요구", "비판", "촉구", 
-        "강연", "연설", "토론", "인터뷰", "기자회견", "질의", "답변", "반박", "지적"
-    ]
-    
-    # 정치인 이름이 포함되어 있는지 확인
-    has_politician = any(politician in title for politician in politicians)
-    
-    # 발언 관련 키워드가 포함되어 있는지 확인
-    has_keyword = any(keyword in title for keyword in keywords)
-    
-    # 정치인 이름과 발언 관련 키워드가 모두 포함되어 있으면 정치인 발언으로 간주
-    return has_politician and has_keyword
 
 # 허위발언카드 HTML 생성 (기존 형식에 맞춤)
 def generate_fact_check_card_html(fact_check):
@@ -562,7 +508,7 @@ def update_html_file():
         statements = collect_politician_statements()
         
         if not statements:
-            print("No factcheckable statements collected, no updates will be made.")
+            print("No statements collected, no updates will be made.")
             return
         
         # 3개의 팩트체크 카드 생성
