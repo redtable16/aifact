@@ -364,29 +364,23 @@ def fact_check_statement(statement):
     improved_name = improve_politician_name(politician_name, party)
     
     # 삼중 따옴표 방식으로 prompt 작성
-    prompt = """
-다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
-
-발언 제목: "{0}"
-실제 발언자(추정): {1}
-출처: {2}
-
-추가 컨텍스트:
-{3}
-
-먼저 발언 제목과 내용을 분석하여 누가 실제로 발언했는지 확인하고, 그 발언의 사실 관계를 객관적으로 검증해주세요.
-
-다음 형식의 JSON으로 응답해주세요:
-{{
-    "politician": "실제 발언자 이름",
-    "party": "소속 정당",
-    "context": "발언 상황",
-    "statement": "원본 발언",
-    "explanation": "실제 사실에 대한 설명 (간결하게)"
-}}
-
-설명은 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
-""".format(
+prompt = "다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.\n\n"
+prompt += f"발언: \"{statement_text}\"\n"
+prompt += f"출처: {statement.get('url', '확인 필요')}\n\n"
+prompt += "추가 컨텍스트:\n"
+prompt += f"{content[:500] if content else '추가 정보 없음'}\n\n"
+prompt += "발언자와 정당 정보:\n"
+prompt += f"발언자: {improved_name if improved_name else '확인 필요'}\n"
+prompt += f"정당: {party if party else '확인 필요'}\n\n"
+prompt += "다음 형식의 JSON으로 응답해주세요:\n"
+prompt += "{\n"
+prompt += '    "politician": "발언자 이름",\n'
+prompt += '    "party": "소속 정당",\n'
+prompt += '    "context": "발언 상황",\n'
+prompt += '    "statement": "원본 발언",\n'
+prompt += '    "explanation": "실제 사실에 대한 설명"\n'
+prompt += "}\n\n"
+prompt += "설명은 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.".format(
         statement_text,
         real_speaker if real_speaker else "확인 필요", 
         statement.get('url', '확인 필요'),
