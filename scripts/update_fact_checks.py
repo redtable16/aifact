@@ -363,34 +363,111 @@ def fact_check_statement(statement):
     # 발언자 이름 개선
     improved_name = improve_politician_name(politician_name, party)
     
+    # 삼중 따옴표 방식으로 prompt 작성
     prompt = """
-    다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
+다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
 
-    발언 제목: "{0}"
-    실제 발언자(추정): {1}
-    출처: {2}
+발언 제목: "{0}"
+실제 발언자(추정): {1}
+출처: {2}
 
-    추가 컨텍스트:
-    {3}
+추가 컨텍스트:
+{3}
 
-    먼저 발언 제목과 내용을 분석하여 누가 실제로 발언했는지 확인하고, 그 발언의 사실 관계를 객관적으로 검증해주세요.
+먼저 발언 제목과 내용을 분석하여 누가 실제로 발언했는지 확인하고, 그 발언의 사실 관계를 객관적으로 검증해주세요.
 
-    다음 형식의 JSON으로 응답해주세요:
-    {{
-        "politician": "실제 발언자 이름",
-        "party": "소속 정당",
-        "context": "발언 상황",
-        "statement": "원본 발언",
-        "explanation": "실제 사실에 대한 설명 (간결하게)"
-    }}
+다음 형식의 JSON으로 응답해주세요:
+{{
+    "politician": "실제 발언자 이름",
+    "party": "소속 정당",
+    "context": "발언 상황",
+    "statement": "원본 발언",
+    "explanation": "실제 사실에 대한 설명 (간결하게)"
+}}
 
 설명은 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
 """.format(
-    statement_text,
-    real_speaker if real_speaker else "확인 필요", 
-    statement.get('url', '확인 필요'),
-    content[:500] if content else '추가 정보 없음'
-)
+        statement_text,
+        real_speaker if real_speaker else "확인 필요", 
+        statement.get('url', '확인 필요'),
+        content[:500] if content else '추가 정보 없음'
+    )
+    
+    try:
+        # API 키 확인용 로그 출력
+        api_key = os.getenv("OPENAI_API_KEY")
+        print(f"API Key available: {api_key is not None and len(api_key) > 0}")
+        
+        # OpenAI API 호출
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model="gpt-4",  # GPT-4 사용
+            messages=[
+                {"role": "system", "content": "당신은 정치인 발언의 사실 관계를 객관적으로 검증하는 팩트체크 전문가입니다. 항상 한국어로 응답하세요."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2  # 더 일관되고 정확한 응답을 위해
+        )
+        
+        # API 응답 디버깅
+        print(f"API response content: {response.choices[0].message.content if hasattr(response, 'choices') and response.choices else 'No content'}")
+        
+        # 응답 파싱 및 예외 처리
+        try:
+            # 정규식을 사용하여 JSON 블록 추출
+            json_match = re.search(r'(\{.*\})', response.choices[0].message.content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            else:
+                # JSON 형식이 아니면 직접 파싱 시도
+                result = json.loads(response.choices[0].message.content)
+            
+            # 필요한 키 확인 및 보완
+            required_keys = ["politician", "party", "context", "statement", "explanation"]
+            for key in required_keys:
+                if key not in result:
+                    if key == "politician":
+                        result[key] = improved_name
+                    elif key == "party":
+                        result[key] = party or "확인 필요"
+                    elif key == "context":
+                        result[key] = context
+                    elif key == "statement":
+                        result[key] = statement_text
+                    elif key == "explanation":
+                        result[key] = "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다."
+            
+            # 정당 정보가 비어있거나 확인 필요인 경우
+            if not result.get("party") or result["party"] == "확인 필요":
+                result["party"] = party or "무소속"
+                
+            # 현재 날짜 추가
+            result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
+            return result
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON: {e}")
+            print(f"Raw response: {response.choices[0].message.content}")
+            
+            # JSON 파싱 실패 시 기본 응답 생성
+            return {
+                "politician": improved_name,
+                "party": party or "무소속",
+                "context": context,
+                "statement": statement_text,
+                "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+                "date": datetime.datetime.now().strftime("%Y.%m.%d")
+            }
+    except Exception as e:
+        print(f"Error fact-checking statement: {e}")
+        # 예외 발생 시 기본 응답 생성
+        return {
+            "politician": improved_name,
+            "party": party or "무소속",
+            "context": context,
+            "statement": statement_text,
+            "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+            "date": datetime.datetime.now().strftime("%Y.%m.%d")
+        }
     
     try:
         # API 키 확인용 로그 출력
