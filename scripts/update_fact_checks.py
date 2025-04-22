@@ -100,7 +100,7 @@ def is_factcheckable_statement(title, content=""):
 def collect_politician_statements():
     print("Starting to collect politician statements from RSS feeds...")
     
-    # 주요 한국 뉴스 사이트의 정치 RSS 피드
+    # 주요 한국 뉴스 사이트의 정치 RSS 피드 - 확장된 목록
     rss_feeds = [
         "https://www.hani.co.kr/rss/politics/",                # 한겨레
         "https://rss.donga.com/politics.xml",                  # 동아일보
@@ -109,7 +109,12 @@ def collect_politician_statements():
         "https://www.ytn.co.kr/_ln/0101_rss.xml",              # YTN 정치
         "https://feed.mk.co.kr/rss/politics/news.xml",         # 매일경제 정치
         "https://www.mt.co.kr/mt_news_politics_rss.xml",       # 머니투데이 정치
-        "https://rss.nocutnews.co.kr/NocutNews_Politics.xml"   # 노컷뉴스 정치
+        "https://rss.nocutnews.co.kr/NocutNews_Politics.xml",  # 노컷뉴스 정치
+        "https://rss.hankyung.com/feed/politics.xml",          # 한국경제
+        "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=01&plink=RSSREADER", # SBS 정치
+        "https://rss.kmib.co.kr/data/kmibPolRss.xml",          # 국민일보 정치
+        "https://www.huffingtonpost.kr/feeds/index.xml",        # 허핑턴포스트
+        "https://www.chosun.com/arc/outboundfeeds/rss/category/politics/?outputType=xml" # 조선일보 정치
     ]
     
     # 단계별 필터링을 위한 수집 컨테이너
@@ -127,7 +132,7 @@ def collect_politician_statements():
             feed = feedparser.parse(feed_url)
             print(f"Found {len(feed.entries)} entries in feed")
             
-            for entry in feed.entries[:30]:  # 각 피드에서 최대 30개 항목 확인
+            for entry in feed.entries[:50]:  # 각 피드에서 최대 50개 항목 확인 (증가)
                 # 기본 정보 추출
                 statement_data = {
                     "title": entry.title,
@@ -419,45 +424,49 @@ def fact_check_statement(statement):
     # 개선된 프롬프트
     prompt = """다음 정치인 주장의 팩트체크를 엄격하게 수행해주세요.
 
-    중요 지침:
-    1. 검증 가능한 객관적 사실 주장만 팩트체크 대상입니다.
-       - 미래 계획, 공약, 의견, 가치 판단은 절대 팩트체크 대상이 아닙니다.
-       - 구체적인 수치나 통계, 날짜, 사건에 대한 명확한 주장만 검증하세요.
-    
-    2. 구체적인 검증 기준:
-       - 수치 주장 (예: "실업률 20% 증가", "2배 상승" 등): 정확한 통계로 검증
-       - 인과관계 주장 (예: "A 정책으로 B 결과 초래"): 실제 인과관계 검증
-       - 과거 사건 주장 (예: "과거에 A가 B를 했다"): 사실 여부 검증
-    
-    3. 팩트체크가 불가능하면 반드시 is_factcheckable을 false로 설정하고 즉시 종료하세요.
-    
-    4. 팩트체크 결과는 다음 중 하나여야 합니다:
-       - "사실": 주장이 증거와 완전히 일치
-       - "대체로 사실": 주장이 기본적으로 사실이나 약간의 과장이나 누락이 있음
-       - "일부 사실": 주장의 일부만 사실
-       - "사실 아님": 주장이 명백히 거짓
-       - "확인 불가": 검증에 필요한 정보가 부족
-    
-    주장: "{statement_text}"
-    출처: {statement.get('url', '확인 필요')}
-    
-    추가 컨텍스트:
-    {content[:500] if content else '추가 정보 없음'}
-    
-    발언자: {improved_name if improved_name else '확인 필요'}
-    정당: {party if party else '확인 필요'}
-    
-    다음 형식의 JSON으로 응답해주세요:
-    {{
-        "politician": "발언자 이름",
-        "party": "소속 정당",
-        "context": "발언 상황",
-        "statement": "원본 주장",
-        "is_factcheckable": true/false,  # 팩트체크 대상인지 여부
-        "verification_result": "사실|대체로 사실|일부 사실|사실 아님|확인 불가",  # 팩트체크 결과
-        "explanation": "실제 사실 및 검증 결과에 대한 설명"
-    }}
-    """
+중요 지침:
+1. 검증 가능한 객관적 사실 주장만 팩트체크 대상입니다. 검증이 어려운 발언은 반드시 제외하세요.
+   - 미래 계획, 공약, 의견, 가치 판단은 절대 팩트체크 대상이 아닙니다.
+   - 구체적인 수치나 통계, 날짜, 사건에 대한 명확한 주장만 검증하세요.
+
+2. 구체적인 검증 기준:
+   - 수치 주장 (예: "실업률 20% 증가", "2배 상승" 등): 정확한 통계로 검증
+   - 인과관계 주장 (예: "A 정책으로 B 결과 초래"): 실제 인과관계 검증
+   - 과거 사건 주장 (예: "과거에 A가 B를 했다"): 사실 여부 검증
+
+3. 명확한 검증 결과를 제시할 수 없는 경우에는 반드시 is_factcheckable을 false로 설정하세요.
+   - 주장에 대한 확인 가능한 통계나 자료가 없다면 검증 불가
+   - 명확한 사실 확인이 어려운 정치적 해석이나 주장은 검증 불가
+   - '확인 불가' 결과는 사용자에게 가치가 없으므로, 확실히 검증할 수 없다면 팩트체크 자체를 하지 마세요.
+
+4. 팩트체크 결과는 다음 중 하나여야 합니다:
+   - "사실": 주장이 증거와 완전히 일치
+   - "대체로 사실": 주장이 기본적으로 사실이나 약간의 과장이나 누락이 있음
+   - "일부 사실": 주장의 일부만 사실
+   - "사실 아님": 주장이 명백히 거짓
+
+주장: "{statement_text}"
+출처: {statement.get('url', '확인 필요')}
+
+추가 컨텍스트:
+{content[:500] if content else '추가 정보 없음'}
+
+발언자: {improved_name if improved_name else '확인 필요'}
+정당: {party if party else '확인 필요'}
+
+다음 형식의 JSON으로 응답해주세요:
+{{
+    "politician": "발언자 이름",
+    "party": "소속 정당",
+    "context": "발언 상황",
+    "statement": "원본 주장",
+    "is_factcheckable": true/false,  # 팩트체크 대상인지 여부
+    "verification_result": "사실|대체로 사실|일부 사실|사실 아님",  # 팩트체크 결과
+    "explanation": "검증 결과에 대한 상세 설명"
+}}
+
+중요: 검증이 어려운 주장은 반드시 is_factcheckable을 false로 설정하세요. 확인 불가 판정이 나올 것 같으면 애초에 팩트체크 대상이 아니라고 판단하는 것이 좋습니다.
+"""
     
     try:
         # API 키 확인용 로그 출력
@@ -505,7 +514,7 @@ def fact_check_statement(statement):
                     elif key == "is_factcheckable":
                         result[key] = True  # 기본값은 팩트체크 가능으로 설정
                     elif key == "verification_result":
-                        result[key] = "확인 불가"  # 기본값은 확인 불가
+                        result[key] = "사실 아님"  # 기본값은 사실 아님
             
             # 정당 정보가 비어있거나 확인 필요인 경우
             if not result.get("party") or result["party"] == "확인 필요":
@@ -519,35 +528,22 @@ def fact_check_statement(statement):
                 print(f"GPT determined statement is not factcheckable: {statement_text}")
                 return None
                 
+            # 검증 결과가 확인 불가인 경우 - 추가
+            if "verification_result" in result and result["verification_result"] == "확인 불가":
+                print(f"GPT returned 'unverifiable' result: {statement_text}")
+                return None
+                
             return result
         except json.JSONDecodeError as e:
             print(f"Failed to parse JSON: {e}")
             print(f"Raw response: {response.choices[0].message.content}")
             
             # JSON 파싱 실패 시 기본 응답 생성
-            return {
-                "politician": improved_name,
-                "party": party or "무소속",
-                "context": context,
-                "statement": statement_text,
-                "explanation": "이 주장의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
-                "is_factcheckable": True,
-                "verification_result": "확인 불가",
-                "date": datetime.datetime.now().strftime("%Y.%m.%d")
-            }
+            return None
     except Exception as e:
         print(f"Error fact-checking statement: {e}")
         # 예외 발생 시 기본 응답 생성
-        return {
-            "politician": improved_name,
-            "party": party or "무소속",
-            "context": context,
-            "statement": statement_text,
-            "explanation": "이 주장의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
-            "is_factcheckable": True,
-            "verification_result": "확인 불가",
-            "date": datetime.datetime.now().strftime("%Y.%m.%d")
-        }
+        return None
 
 # 팩트체크 카드 HTML 생성 (개선된 형식)
 def generate_fact_check_card_html(fact_check):
@@ -577,7 +573,7 @@ def generate_fact_check_card_html(fact_check):
     first_letter = fact_check["politician"][0] if fact_check["politician"] else "?"
     
     # 검증 결과에 따른 스타일 적용
-    verification_result = fact_check.get("verification_result", "확인 불가")
+    verification_result = fact_check.get("verification_result", "사실 아님")
     result_class = ""
     
     if verification_result == "사실":
@@ -706,13 +702,20 @@ def update_html_file():
         # 중복 방지를 위한 임시 저장소
         processed_statements = set()
         
-        # 랜덤으로 발언을 선택하여 팩트체크
-        random.shuffle(statements)
-        max_cards = min(3, len(statements))  # 최대 3개, 수집된 발언이 3개 미만이면 해당 개수만큼
+        # 스크립트가 최소 3개 또는 가능한 최대 카드를 생성하도록 보장
+        target_cards = 3  # 목표 카드 수
+        max_attempts = 20  # 최대 시도 횟수 (충분한 카드를 얻기 위해)
         
-        for statement in statements:
-            if processed_cards >= max_cards:
-                break
+        # 랜덤으로 발언을 선택하여 팩트체크
+        statements_copy = statements.copy()  # 원본 리스트 보존
+        random.shuffle(statements_copy)
+        attempts = 0
+        
+        for statement in statements_copy:
+            if processed_cards >= target_cards or attempts >= max_attempts:
+                break  # 목표 카드 수 달성 또는 최대 시도 횟수 도달 시 종료
+            
+            attempts += 1
             
             # 중복 체크 - 이미 HTML에 있는 발언인지 확인
             if statement['title'] in existing_statements:
@@ -734,10 +737,10 @@ def update_html_file():
             
             # GPT가 팩트체크 불가능하다고 판단했거나 오류가 발생한 경우
             if not fact_check:
-                print(f"Skipping statement due to fact check failure: {statement['title']}")
+                print(f"Skipping statement due to fact check failure or unverifiable result: {statement['title']}")
                 continue
                 
-            # 허위발언카드 HTML 생성
+            # 팩트체크 카드 HTML 생성
             card_html = generate_fact_check_card_html(fact_check)
             all_cards_html += card_html
             
@@ -745,11 +748,14 @@ def update_html_file():
             processed_statements.add(statement['title'])
             processed_cards += 1
             
-            print(f"Processed card {processed_cards}/{max_cards}: {fact_check['statement']}")
+            print(f"Processed card {processed_cards}/{target_cards}: {fact_check['statement']}")
         
-        if processed_cards == 0:
-            print("No cards were generated. No updates will be made.")
-            return
+        # 목표 카드 수에 도달하지 못한 경우 경고 출력
+        if processed_cards < target_cards:
+            print(f"Warning: Could only generate {processed_cards} cards out of {target_cards} target cards")
+            if processed_cards == 0:
+                print("No cards were generated. No updates will be made.")
+                return
         
         # 내용 출력하여 디버깅
         print(f"HTML file size: {len(content)} bytes")
@@ -778,6 +784,11 @@ def update_html_file():
             # 변경 내용 길이 확인
             print(f"New HTML size: {len(new_content)} bytes")
             print(f"HTML size difference: {len(new_content) - len(content)} bytes")
+            
+            # HTML 파일에서 제목 및 레이블 텍스트 업데이트
+            new_content = new_content.replace("허위 발언 트래커", "정치인 발언 검증 서비스")
+            new_content = new_content.replace("<!-- 허위 발언 카드", "<!-- 팩트체크 카드")
+            new_content = new_content.replace('<span class="correction-label">실제 사실:</span>', '<span class="correction-label">검증 설명:</span>')
             
             # 업데이트된 콘텐츠 저장
             with open('index.html', 'w', encoding='utf-8') as file:
