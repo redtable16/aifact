@@ -6,9 +6,6 @@ import requests
 from bs4 import BeautifulSoup
 import openai
 
-# OpenAI API 설정
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
 # 최신 뉴스 기사에서 정치인 발언 추출
 def collect_politician_statements():
     # 주요 뉴스 사이트 목록
@@ -97,7 +94,9 @@ def fact_check_statement(statement):
     """
     
     try:
-        response = openai.ChatCompletion.create(
+        # 새로운 버전 코드:
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are a fact-checking expert for Korean political statements."},
@@ -207,23 +206,45 @@ def update_html_file():
     with open('index.html', 'r', encoding='utf-8') as file:
         content = file.read()
     
-    # 새 카드를 추가할 위치 찾기 (<!-- FACT_CHECK_CARDS --> 주석 다음)
+    # 내용 출력하여 디버깅
+    print(f"HTML file size: {len(content)} bytes")
+    
+    # 마커 확인
     insert_marker = "<!-- FACT_CHECK_CARDS -->"
+    print(f"Looking for marker: '{insert_marker}'")
+    
     if insert_marker in content:
+        print(f"Marker found at position: {content.find(insert_marker)}")
+        
         # 마커 위치 찾기
         marker_position = content.find(insert_marker) + len(insert_marker)
+        
+        # 영향을 받는 부분 출력
+        surrounding_content = content[marker_position-50:marker_position+50]
+        print(f"Content around marker: '{surrounding_content}'")
+        
+        # 새 콘텐츠 생성
         new_content = content[:marker_position] + "\n" + all_cards_html + content[marker_position:]
         
         # 마지막 업데이트 날짜 갱신
         today = datetime.datetime.now().strftime("%Y.%m.%d")
         print(f"Added {processed_cards} new fact check cards on {today}")
         
+        # 변경 내용 길이 확인
+        print(f"New HTML size: {len(new_content)} bytes")
+        print(f"HTML size difference: {len(new_content) - len(content)} bytes")
+        
         # 업데이트된 콘텐츠 저장
         with open('index.html', 'w', encoding='utf-8') as file:
             file.write(new_content)
+            print("Successfully saved updated HTML file")
     else:
         print(f"Could not find marker '{insert_marker}' in the HTML file")
-        print("Please add the marker right after the <div class=\"falsehood-list\"> tag in your HTML file")
+        # 전체 내용 출력하지 않고 일부분만 찾기
+        for i in range(0, len(content), 100):
+            chunk = content[i:i+100]
+            if "FACT_CHECK" in chunk:
+                print(f"Found similar text at position {i}: '{chunk}'")
 
 if __name__ == "__main__":
     update_html_file()
