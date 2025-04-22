@@ -12,6 +12,8 @@ import openai
 # 기존 발언 카드에서 이미 처리된 발언을 추출하는 함수
 def extract_existing_statements(html_content):
     existing_statements = []
+    existing_politicians_with_statements = []
+    
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # 모든 발언 카드 찾기
@@ -20,50 +22,79 @@ def extract_existing_statements(html_content):
     for card in cards:
         # 발언 내용 추출
         statement_content = card.select_one('.falsehood-content')
-        if statement_content:
+        politician_name_elem = card.select_one('.politician-name')
+        
+        if statement_content and politician_name_elem:
             statement_text = statement_content.get_text(strip=True)
+            politician_name = politician_name_elem.get_text(strip=True)
+            
+            # 발언 내용만 저장
             existing_statements.append(statement_text)
             
-        # 발언자 이름 추출 (선택적)
-        politician_name_elem = card.select_one('.politician-name')
-        if politician_name_elem:
-            politician_name = politician_name_elem.get_text(strip=True)
-            # politician_statement 형식으로 저장하여 동일 발언자의 다른 발언은 허용
+            # 정치인+발언 조합도 저장 (더 엄격한 중복 체크)
             politician_statement = f"{politician_name}:{statement_text}"
-            existing_statements.append(politician_statement)
+            existing_politicians_with_statements.append(politician_statement)
+            
+            # 유사 발언 감지를 위한 키워드 추출 (더 유연한 중복 체크)
+            words = re.findall(r'\w+', statement_text)
+            for i in range(len(words) - 2):
+                if i + 2 < len(words):
+                    keyword_triplet = f"{words[i]} {words[i+1]} {words[i+2]}"
+                    existing_statements.append(keyword_triplet)
     
-    return existing_statements
+    return existing_statements, existing_politicians_with_statements
 
 # 팩트체크 가능한 발언인지 판단하는 함수
 def is_factcheckable_statement(title, content=""):
-    # 팩트체크가 어려운 유형의 발언 키워드
-    non_factcheckable = [
-        "공약", "추진", "계획", "예정", "방침", "의견", "생각", "제안", "구상", 
-        "육성", "메가시티", "허브", "하겠다", "예정", "추진할", "추진하겠"
-    ]
-    
-    # 사실 주장에 가까운 키워드
-    factcheckable = [
-        "통계", "수치", "증가", "감소", "상승", "하락", "확인", "발표", "보고", 
-        "조사", "결과", "사실", "주장", "밝혔", "입증", "지적"
+    # 즉시 제외할 패턴 - 확실하게 팩트체크 불가능한 것들
+    immediate_exclude_patterns = [
+        r'.*하겠다.*', r'.*할 것.*', r'.*추진.*', r'.*계획.*', r'.*공약.*', 
+        r'.*육성.*', r'.*설립.*', r'.*제안.*'
     ]
     
     full_text = title + " " + content
     
-    # 팩트체크가 어려운 내용 포함 여부
-    for term in non_factcheckable:
-        if term in full_text:
-            print(f"Statement contains non-factcheckable term: {term}")
+    # 확실히 팩트체크 불가능한 패턴이 있다면 즉시 제외
+    for pattern in immediate_exclude_patterns:
+        if re.search(pattern, full_text):
+            print(f"Statement immediately excluded due to pattern: {pattern}")
             return False
     
-    # 사실 주장 키워드가 하나라도 있는지 확인
-    has_factcheckable = any(term in full_text for term in factcheckable)
+    # 확실한 주장 패턴 - 팩트체크 가능성 높음
+    strong_factcheckable_patterns = [
+        # 숫자 + 단위 패턴
+        r'\d+\.?\d*\s*%', r'\d+\.?\d*\s*배', r'\d+\.?\d*\s*조원', r'\d+\.?\d*\s*억원', 
+        r'\d+\.?\d*\s*만원', r'\d+\s*명', r'\d+\s*인', r'\d+\s*건',
+        
+        # 비교 표현
+        r'최대', r'최소', r'사상 최고', r'사상 최저', r'역대 최고',
+        
+        # 객관적 주장 표현
+        r'사실[은는이가]', r'실제로[는은]', r'통계[에에서는은상]', r'데이터[에에서는은상]'
+    ]
     
-    if not has_factcheckable:
-        print(f"Statement lacks factcheckable keywords")
-        return False
+    # 확실한 팩트체크 가능 패턴이 있는지 확인
+    for pattern in strong_factcheckable_patterns:
+        if re.search(pattern, full_text):
+            print(f"Statement has strong factcheckable pattern: {pattern}")
+            return True
     
-    return True
+    # 명확한 주장 키워드
+    assertion_keywords = ["주장", "지적", "비판", "발표", "밝혔", "확인", "증명", "입증"]
+    has_assertion = any(keyword in full_text for keyword in assertion_keywords)
+    
+    # 수치 관련 키워드
+    number_keywords = ["증가", "감소", "상승", "하락", "늘었", "줄었", "확대", "축소"]
+    has_number_keyword = any(keyword in full_text for keyword in number_keywords)
+    
+    # 둘 다 있어야 팩트체크 가능성 높음
+    if has_assertion and has_number_keyword:
+        print("Statement has both assertion and number keywords")
+        return True
+    
+    # 그 외에는 기본적으로 팩트체크 대상이 아님
+    print("Statement doesn't meet factcheck criteria")
+    return False
 
 # RSS 피드에서 정치인 발언 수집 (24시간 이내 기사만)
 def collect_politician_statements():
@@ -151,6 +182,43 @@ def collect_politician_statements():
     politician_statements = deduplicate(politician_statements)
     factcheckable_statements = deduplicate(factcheckable_statements)
     
+    # 수집된 발언 중 숫자 기반 주장을 우선순위로 정렬
+    def prioritize_numeric_statements(statements):
+        numeric_statements = []
+        other_statements = []
+        
+        # 숫자 패턴 정규식
+        number_patterns = [
+            r'\d+\.?\d*\s*%', r'\d+\.?\d*\s*배', r'\d+\.?\d*\s*조', r'\d+\.?\d*\s*억', 
+            r'\d+\.?\d*\s*만', r'\d+\.?\d*\s*천', r'수\s*[십백천만억조]+', r'\d+\s*년'
+        ]
+        
+        # 숫자 관련 키워드
+        number_keywords = [
+            "증가", "감소", "상승", "하락", "배", "퍼센트", "%", "억", "조", "만", 
+            "천", "수치", "통계", "지수"
+        ]
+        
+        for statement in statements:
+            title = statement.get('title', '')
+            content = statement.get('content', '')
+            full_text = title + " " + content
+            
+            # 숫자 패턴이나 키워드가 있으면 우선순위 높게
+            if any(re.search(pattern, full_text) for pattern in number_patterns) or \
+               any(keyword in full_text for keyword in number_keywords):
+                numeric_statements.append(statement)
+            else:
+                other_statements.append(statement)
+        
+        # 숫자 기반 주장을 앞에 배치
+        return numeric_statements + other_statements
+    
+    # 숫자 기반 주장을 우선하도록 정렬
+    factcheckable_statements = prioritize_numeric_statements(factcheckable_statements)
+    politician_statements = prioritize_numeric_statements(politician_statements)
+    all_statements = prioritize_numeric_statements(all_statements)
+    
     # 단계별 수집 결과 출력
     print("\nCollection Summary:")
     print(f"- All political articles: {len(all_statements)}")
@@ -216,7 +284,8 @@ def extract_politician_and_party(title, article_content=""):
         "권영세": "국민의힘",
         "김기현": "국민의힘",
         "주호영": "국민의힘",
-        "정진석": "국민의힘"
+        "정진석": "국민의힘",
+        "나경원": "국민의힘"
     }
     
     # 정당 이름
@@ -348,21 +417,28 @@ def fact_check_statement(statement):
     improved_name = improve_politician_name(politician_name, party)
     
     # 개선된 프롬프트
-    prompt = """다음 정치인 발언의 사실 여부를 검증해주세요.
+    prompt = """다음 정치인 주장의 팩트체크를 엄격하게 수행해주세요.
 
     중요 지침:
-    1. 이 발언이 팩트체크 대상인지 먼저 판단하세요. 다음은 팩트체크 대상이 아닙니다:
-       - 미래 계획/공약/정책 제안 ("5대 권역 메가시티를 육성하겠다" 등)
-       - 주관적 의견이나 가치 판단
-       - "하겠다", "추진할 것" 등 미래형 서술
+    1. 검증 가능한 객관적 사실 주장만 팩트체크 대상입니다.
+       - 미래 계획, 공약, 의견, 가치 판단은 절대 팩트체크 대상이 아닙니다.
+       - 구체적인 수치나 통계, 날짜, 사건에 대한 명확한 주장만 검증하세요.
     
-    2. 팩트체크 대상이 아니면 반드시 is_factcheckable을 false로 설정하고 설명에 그 이유를 밝혀주세요.
+    2. 구체적인 검증 기준:
+       - 수치 주장 (예: "실업률 20% 증가", "2배 상승" 등): 정확한 통계로 검증
+       - 인과관계 주장 (예: "A 정책으로 B 결과 초래"): 실제 인과관계 검증
+       - 과거 사건 주장 (예: "과거에 A가 B를 했다"): 사실 여부 검증
     
-    3. 팩트체크 대상인 경우에만:
-       - 객관적인 사실과 통계를 바탕으로 검증하세요
-       - 가능한 구체적인 수치와 출처를 포함하세요
+    3. 팩트체크가 불가능하면 반드시 is_factcheckable을 false로 설정하고 즉시 종료하세요.
     
-    발언: "{statement_text}"
+    4. 팩트체크 결과는 다음 중 하나여야 합니다:
+       - "사실": 주장이 증거와 완전히 일치
+       - "대체로 사실": 주장이 기본적으로 사실이나 약간의 과장이나 누락이 있음
+       - "일부 사실": 주장의 일부만 사실
+       - "사실 아님": 주장이 명백히 거짓
+       - "확인 불가": 검증에 필요한 정보가 부족
+    
+    주장: "{statement_text}"
     출처: {statement.get('url', '확인 필요')}
     
     추가 컨텍스트:
@@ -376,9 +452,10 @@ def fact_check_statement(statement):
         "politician": "발언자 이름",
         "party": "소속 정당",
         "context": "발언 상황",
-        "statement": "원본 발언",
-        "is_factcheckable": true/false,
-        "explanation": "실제 사실에 대한 설명"
+        "statement": "원본 주장",
+        "is_factcheckable": true/false,  # 팩트체크 대상인지 여부
+        "verification_result": "사실|대체로 사실|일부 사실|사실 아님|확인 불가",  # 팩트체크 결과
+        "explanation": "실제 사실 및 검증 결과에 대한 설명"
     }}
     """
     
@@ -412,7 +489,7 @@ def fact_check_statement(statement):
                 result = json.loads(response.choices[0].message.content)
             
             # 필요한 키 확인 및 보완
-            required_keys = ["politician", "party", "context", "statement", "explanation", "is_factcheckable"]
+            required_keys = ["politician", "party", "context", "statement", "explanation", "is_factcheckable", "verification_result"]
             for key in required_keys:
                 if key not in result:
                     if key == "politician":
@@ -424,9 +501,11 @@ def fact_check_statement(statement):
                     elif key == "statement":
                         result[key] = statement_text
                     elif key == "explanation":
-                        result[key] = "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다."
+                        result[key] = "이 주장의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다."
                     elif key == "is_factcheckable":
                         result[key] = True  # 기본값은 팩트체크 가능으로 설정
+                    elif key == "verification_result":
+                        result[key] = "확인 불가"  # 기본값은 확인 불가
             
             # 정당 정보가 비어있거나 확인 필요인 경우
             if not result.get("party") or result["party"] == "확인 필요":
@@ -451,8 +530,9 @@ def fact_check_statement(statement):
                 "party": party or "무소속",
                 "context": context,
                 "statement": statement_text,
-                "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+                "explanation": "이 주장의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
                 "is_factcheckable": True,
+                "verification_result": "확인 불가",
                 "date": datetime.datetime.now().strftime("%Y.%m.%d")
             }
     except Exception as e:
@@ -463,12 +543,13 @@ def fact_check_statement(statement):
             "party": party or "무소속",
             "context": context,
             "statement": statement_text,
-            "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+            "explanation": "이 주장의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
             "is_factcheckable": True,
+            "verification_result": "확인 불가",
             "date": datetime.datetime.now().strftime("%Y.%m.%d")
         }
 
-# 허위발언카드 HTML 생성 (기존 형식에 맞춤)
+# 팩트체크 카드 HTML 생성 (개선된 형식)
 def generate_fact_check_card_html(fact_check):
     party_class = ""
     avatar_class = ""
@@ -495,8 +576,23 @@ def generate_fact_check_card_html(fact_check):
     # 정치인 이름의 첫 글자 추출
     first_letter = fact_check["politician"][0] if fact_check["politician"] else "?"
     
-    # HTML 카드 생성 (문자열 처리 단순화)
-    card_html = "<!-- 허위 발언 카드 -->\n"
+    # 검증 결과에 따른 스타일 적용
+    verification_result = fact_check.get("verification_result", "확인 불가")
+    result_class = ""
+    
+    if verification_result == "사실":
+        result_class = "result-true"
+    elif verification_result == "대체로 사실":
+        result_class = "result-mostly-true"
+    elif verification_result == "일부 사실":
+        result_class = "result-partially-true"
+    elif verification_result == "사실 아님":
+        result_class = "result-false"
+    else:
+        result_class = "result-unverifiable"
+    
+    # HTML 카드 생성
+    card_html = "<!-- 팩트체크 카드 -->\n"
     card_html += f'<div class="falsehood-card" data-party="{fact_check["party"]}">\n'
     card_html += '<div class="falsehood-header">\n'
     card_html += f'<div class="politician-avatar {avatar_class}">{first_letter}</div>\n'
@@ -509,21 +605,32 @@ def generate_fact_check_card_html(fact_check):
     card_html += '</div>\n'
     card_html += f'<div class="falsehood-date">{fact_check["date"]}</div>\n'
     card_html += '</div>\n'
+    
+    # 발언 출처 표시
     card_html += '<div class="falsehood-source">\n'
     card_html += f'<i class="fas fa-bullhorn"></i> {fact_check["context"]}\n'
     card_html += '</div>\n'
+    
+    # 검증 결과 표시
+    card_html += f'<div class="verification-result {result_class}">\n'
+    card_html += f'<span class="result-label">검증 결과:</span> {verification_result}\n'
+    card_html += '</div>\n'
+    
+    # 발언 내용 표시
     card_html += '<div class="falsehood-content">\n'
     card_html += f'{fact_check["statement"]}\n'
     card_html += '</div>\n'
+    
+    # 검증 설명 표시
     card_html += '<div class="falsehood-correction">\n'
-    card_html += '<span class="correction-label">실제 사실:</span>\n'
+    card_html += '<span class="correction-label">검증 설명:</span>\n'
     card_html += f'{fact_check["explanation"]}\n'
     card_html += '</div>\n'
     card_html += '</div>\n'
     
     return card_html
 
-# HTML 파일 업데이트 - 중복 방지 로직 추가
+# HTML 파일 업데이트 - 중복 방지 및 팩트체크 품질 개선 로직 추가
 def update_html_file():
     try:
         # 정치인 발언 수집
@@ -538,8 +645,59 @@ def update_html_file():
             content = file.read()
         
         # 기존 발언 추출
-        existing_statements = extract_existing_statements(content)
+        existing_statements, existing_politicians_with_statements = extract_existing_statements(content)
         print(f"Found {len(existing_statements)} existing statements")
+        
+        # CSS 스타일 추가 (검증 결과 표시용)
+        if '.verification-result' not in content:
+            style_addition = """
+        .verification-result {
+            padding: 0.5rem 1rem;
+            font-weight: bold;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .result-true {
+            background-color: #D4EDDA;
+            color: #155724;
+        }
+        
+        .result-mostly-true {
+            background-color: #D1ECF1;
+            color: #0C5460;
+        }
+        
+        .result-partially-true {
+            background-color: #FFF3CD;
+            color: #856404;
+        }
+        
+        .result-false {
+            background-color: #F8D7DA;
+            color: #721C24;
+        }
+        
+        .result-unverifiable {
+            background-color: #E2E3E5;
+            color: #383D41;
+        }
+        """
+            # </style> 태그를 찾아서 그 앞에 스타일 추가
+            style_end_pos = content.find('</style>')
+            if style_end_pos > 0:
+                content = content[:style_end_pos] + style_addition + content[style_end_pos:]
+                print("Added verification result styles to CSS")
+                
+                # 업데이트된 HTML 내용으로 파일 쓰기
+                with open('index.html', 'w', encoding='utf-8') as file:
+                    file.write(content)
+                
+                # 다시 읽기
+                with open('index.html', 'r', encoding='utf-8') as file:
+                    content = file.read()
+            else:
+                print("Could not find </style> tag to add new styles")
         
         # 처리된 카드 수와 HTML 저장
         all_cards_html = ""
@@ -561,12 +719,12 @@ def update_html_file():
                 print(f"Skipping duplicate statement: {statement['title']}")
                 continue
                 
-            # 추가 중복 체크 - 이미 이번 실행에서 처리한 발언인지 확인
+            # 추가 중복 체크 - 이번 실행에서 처리한 발언인지 확인
             if statement['title'] in processed_statements:
                 print(f"Skipping statement already processed in this run: {statement['title']}")
                 continue
             
-            # 팩트체크 대상인지 한번 더 확인 (이미 collect_politician_statements()에서 필터링했지만 안전을 위해)
+            # 팩트체크 대상인지 한번 더 확인
             if not is_factcheckable_statement(statement['title'], statement.get('content', '')):
                 print(f"Skipping non-factcheckable statement: {statement['title']}")
                 continue
@@ -636,3 +794,7 @@ def update_html_file():
         print(f"Error updating HTML file: {e}")
         import traceback
         traceback.print_exc()
+
+# 메인 함수 실행
+if __name__ == "__main__":
+    update_html_file()
