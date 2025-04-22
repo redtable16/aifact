@@ -2,7 +2,7 @@ name: Daily Fact Check Update
 
 on:
   schedule:
-    - cron: '0 1 * * *'  # 매일 UTC 01:00 (한국 시간으로는 오전 10시) 실행
+    - cron: '30 23 * * *'  # 매일 UTC 23:30 (한국 시간으로는 오전 8:30) 실행
   workflow_dispatch:  # 수동 실행 옵션 추가
 
 jobs:
@@ -30,6 +30,8 @@ jobs:
       run: python scripts/update_fact_checks.py
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+        NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
     
     - name: Configure Git
       run: |
