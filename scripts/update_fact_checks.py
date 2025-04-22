@@ -85,13 +85,31 @@ def collect_politician_statements():
                 
                 # 2단계: 정치인 발언 필터링
                 if is_politician_statement(title, article_content):
-                    politician_statements.append(statement_data)
-                    print(f"  Found politician statement: {title}")
+                    # 중복 발언 검사
+                    is_duplicate = False
+                    for existing_statement in politician_statements:
+                        if is_similar_statement(statement_data, existing_statement):
+                            print(f"  Skipping duplicate politician statement: {title}")
+                            is_duplicate = True
+                            break
                     
-                    # 3단계: 팩트체크 가능한 발언 필터링
-                    if is_factcheckable_statement(title, article_content):
-                        factcheckable_statements.append(statement_data)
-                        print(f"  Found factcheckable statement: {title}")
+                    if not is_duplicate:
+                        politician_statements.append(statement_data)
+                        print(f"  Found politician statement: {title}")
+                        
+                        # 3단계: 팩트체크 가능한 발언 필터링
+                        if is_factcheckable_statement(title, article_content):
+                            # 중복 팩트체크 발언 검사
+                            is_factcheck_duplicate = False
+                            for existing_statement in factcheckable_statements:
+                                if is_similar_statement(statement_data, existing_statement):
+                                    print(f"  Skipping duplicate factcheckable statement: {title}")
+                                    is_factcheck_duplicate = True
+                                    break
+                                
+                            if not is_factcheck_duplicate:
+                                factcheckable_statements.append(statement_data)
+                                print(f"  Found factcheckable statement: {title}")
         
         except Exception as e:
             print(f"Error processing feed {feed_url}: {e}")
@@ -109,7 +127,7 @@ def collect_politician_statements():
                 unique_statements.append(statement)
         return unique_statements
     
-    # 중복 제거 적용
+    # URL 기반 중복 제거 적용
     all_statements = deduplicate(all_statements)
     politician_statements = deduplicate(politician_statements)
     factcheckable_statements = deduplicate(factcheckable_statements)
@@ -134,6 +152,32 @@ def collect_politician_statements():
         print("No suitable articles found in the last 24 hours.")
         return []
 
+# 텍스트 유사도를 확인하는 함수
+def is_similar_statement(statement1, statement2, threshold=0.6):
+    # 실제 발언자 추출
+    real_speaker1 = extract_real_speaker(statement1['title'], statement1.get('content', ''))
+    real_speaker2 = extract_real_speaker(statement2['title'], statement2.get('content', ''))
+    
+    # 다른 사람의 발언이면 유사하지 않음
+    if real_speaker1 and real_speaker2 and real_speaker1 != real_speaker2:
+        return False
+    
+    # 제목 비교
+    title1 = statement1['title']
+    title2 = statement2['title']
+    
+    # 간단한 텍스트 유사도 확인 (공통 단어 비율)
+    words1 = set(title1.split())
+    words2 = set(title2.split())
+    
+    if not words1 or not words2:
+        return False
+    
+    # 교집합 크기 / 합집합 크기 = 자카드 유사도
+    similarity = len(words1.intersection(words2)) / len(words1.union(words2))
+    
+    return similarity >= threshold
+
 # 정치인 발언인지 확인 (본문 내용도 함께 검사)
 def is_politician_statement(title, content=""):
     # 정치인 명단
@@ -152,14 +196,17 @@ def is_politician_statement(title, content=""):
     # 제목과 내용 모두 검색
     full_text = title + " " + content
     
+    # 인용부호 확인 (인용부호가 있으면 발언일 가능성 높음)
+    has_quote = '"' in title or "'" in title or """ in title or "'" in title
+    
     # 정치인 이름이 포함되어 있는지 확인
     has_politician = any(politician in full_text for politician in politicians)
     
     # 발언 관련 키워드가 포함되어 있는지 확인
     has_keyword = any(keyword in full_text for keyword in keywords)
     
-    # 정치인 이름과 발언 관련 키워드가 모두 포함되어 있으면 정치인 발언으로 간주
-    return has_politician and has_keyword
+    # 정치인 이름과 발언 관련 키워드가 모두 포함되어 있거나, 인용부호가 있으면 정치인 발언으로 간주
+    return (has_politician and has_keyword) or (has_politician and has_quote)
 
 # 팩트체크 가능한 발언인지 확인
 def is_factcheckable_statement(title, content=""):
@@ -194,6 +241,52 @@ def is_factcheckable_statement(title, content=""):
     
     # 수치/통계가 있거나 팩트체크 키워드가 있고, 주관적 표현이 없는 경우만 선택
     return (has_numbers or has_factcheck_keywords) and not has_subjective_keywords
+
+# 제목과 내용에서 실제 발언자 추출
+def extract_real_speaker(title, content=""):
+    # 인용 패턴 찾기 (예: "김영선 비서 "이준석, 명태균에 쇼 프랑스대사 보내자고 제안"")
+    # 패턴1: A "B가 말했다"
+    quote_pattern1 = r'([가-힣]+)([\s]*)(?:비서|의원|대표|장관|총리|대통령|위원장|후보)?(?:[\s,]*)["\']([^"\']+)["\'](고|라고|며)'
+    match = re.search(quote_pattern1, title)
+    if match:
+        # 첫 번째 그룹이 발언자
+        return match.group(1)
+    
+    # 패턴2: "A가 말했다"고 B가 전했다
+    quote_pattern2 = r'["\'](.*?)(?:라고|고)[\s]*([가-힣]+)(?:[\s]*)(?:비서|의원|대표|장관|총리|대통령|위원장|후보)?(?:가|이)[\s]*(?:전했|밝혔|말했)'
+    match = re.search(quote_pattern2, title)
+    if match and match.group(2):
+        # 두 번째 그룹이 발언자
+        return match.group(2)
+    
+    # 패턴3: A "B" 발언
+    quote_pattern3 = r'([가-힣]+)(?:[\s]*)(?:비서|의원|대표|장관|총리|대통령|위원장|후보)?(?:[\s,]*)["\']([^"\']+)["\'](?:[\s]*)(?:발언|주장|언급)'
+    match = re.search(quote_pattern3, title)
+    if match:
+        # 첫 번째 그룹이 발언자
+        return match.group(1)
+    
+    # 패턴4: 기본 패턴 - 제목 시작 부분에 이름이 있으면 발언자로 간주
+    basic_pattern = r'^([가-힣]{2,4})(?:[\s]*)(?:비서|의원|대표|장관|총리|대통령|위원장|후보)?(?:[\s,]*)["\']'
+    match = re.search(basic_pattern, title)
+    if match:
+        return match.group(1)
+    
+    # 패턴이 매치되지 않으면 본문에서 추가 검색 시도
+    if content:
+        # 첫 문장에서 발언자 찾기 시도
+        first_sentence_end = content.find(".")
+        if first_sentence_end > 0:
+            first_sentence = content[:first_sentence_end]
+            for pattern in [quote_pattern1, quote_pattern2, quote_pattern3]:
+                match = re.search(pattern, first_sentence)
+                if match and (pattern == quote_pattern2):
+                    return match.group(2)
+                elif match:
+                    return match.group(1)
+    
+    # 발언자를 찾지 못한 경우
+    return None
 
 # URL이나 기사 내용에서 날짜 추출 시도
 def extract_date_from_url_or_content(entry):
@@ -254,7 +347,17 @@ def fact_check_statement(statement):
     # 정치인 이름과 정당 추출
     statement_text = statement['title']
     content = statement.get('content', '')
-    politician_name, party = extract_politician_and_party(statement_text, content)
+    
+    # 실제 발언자 추출 시도
+    real_speaker = extract_real_speaker(statement_text, content)
+    
+    # 실제 발언자가 있으면 이를 우선 사용, 없으면 기존 방식 사용
+    if real_speaker:
+        politician_name = real_speaker
+        _, party = extract_politician_and_party(politician_name, content)
+    else:
+        politician_name, party = extract_politician_and_party(statement_text, content)
+    
     context = get_statement_context(statement)
     
     # 발언자 이름 개선
@@ -263,19 +366,18 @@ def fact_check_statement(statement):
     prompt = f"""
     다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
     
-    발언: "{statement_text}"
+    발언 제목: "{statement_text}"
+    실제 발언자(추정): {real_speaker if real_speaker else "확인 필요"}
     출처: {statement.get('url', '확인 필요')}
     
     추가 컨텍스트:
     {content[:500] if content else '추가 정보 없음'}
     
-    발언자와 정당 정보:
-    발언자: {improved_name if improved_name else '확인 필요'}
-    정당: {party if party else '확인 필요'}
+    먼저 발언 제목과 내용을 분석하여 누가 실제로 발언했는지 확인하고, 그 발언의 사실 관계를 객관적으로 검증해주세요.
     
     다음 형식의 JSON으로 응답해주세요:
     {{
-        "politician": "발언자 이름",
+        "politician": "실제 발언자 이름",
         "party": "소속 정당",
         "context": "발언 상황",
         "statement": "원본 발언",
@@ -575,11 +677,23 @@ def update_html_file():
         
         all_cards_html = ""
         processed_cards = 0
+        processed_statements = []  # 이미 처리된 발언 저장
         
         # 랜덤으로 발언을 선택하여 팩트체크
         random.shuffle(statements)
         
         for statement in statements:
+            # 이미 유사한 발언이 처리되었는지 확인
+            is_duplicate = False
+            for processed in processed_statements:
+                if is_similar_statement(statement, processed):
+                    print(f"Skipping similar statement: {statement['title']}")
+                    is_duplicate = True
+                    break
+                    
+            if is_duplicate:
+                continue
+                
             if processed_cards >= num_cards:
                 break
                 
@@ -593,6 +707,7 @@ def update_html_file():
             card_html = generate_fact_check_card_html(fact_check)
             all_cards_html += card_html
             processed_cards += 1
+            processed_statements.append(statement)  # 처리된 발언 저장
             
             print(f"Processed card {processed_cards}/{num_cards}: {fact_check['statement']}")
         
