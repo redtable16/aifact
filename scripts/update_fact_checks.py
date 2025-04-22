@@ -9,6 +9,62 @@ import re
 from bs4 import BeautifulSoup
 import openai
 
+# 기존 발언 카드에서 이미 처리된 발언을 추출하는 함수
+def extract_existing_statements(html_content):
+    existing_statements = []
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # 모든 발언 카드 찾기
+    cards = soup.select('.falsehood-card')
+    
+    for card in cards:
+        # 발언 내용 추출
+        statement_content = card.select_one('.falsehood-content')
+        if statement_content:
+            statement_text = statement_content.get_text(strip=True)
+            existing_statements.append(statement_text)
+            
+        # 발언자 이름 추출 (선택적)
+        politician_name_elem = card.select_one('.politician-name')
+        if politician_name_elem:
+            politician_name = politician_name_elem.get_text(strip=True)
+            # politician_statement 형식으로 저장하여 동일 발언자의 다른 발언은 허용
+            politician_statement = f"{politician_name}:{statement_text}"
+            existing_statements.append(politician_statement)
+    
+    return existing_statements
+
+# 팩트체크 가능한 발언인지 판단하는 함수
+def is_factcheckable_statement(title, content=""):
+    # 팩트체크가 어려운 유형의 발언 키워드
+    non_factcheckable = [
+        "공약", "추진", "계획", "예정", "방침", "의견", "생각", "제안", "구상", 
+        "육성", "메가시티", "허브", "하겠다", "예정", "추진할", "추진하겠"
+    ]
+    
+    # 사실 주장에 가까운 키워드
+    factcheckable = [
+        "통계", "수치", "증가", "감소", "상승", "하락", "확인", "발표", "보고", 
+        "조사", "결과", "사실", "주장", "밝혔", "입증", "지적"
+    ]
+    
+    full_text = title + " " + content
+    
+    # 팩트체크가 어려운 내용 포함 여부
+    for term in non_factcheckable:
+        if term in full_text:
+            print(f"Statement contains non-factcheckable term: {term}")
+            return False
+    
+    # 사실 주장 키워드가 하나라도 있는지 확인
+    has_factcheckable = any(term in full_text for term in factcheckable)
+    
+    if not has_factcheckable:
+        print(f"Statement lacks factcheckable keywords")
+        return False
+    
+    return True
+
 # RSS 피드에서 정치인 발언 수집 (24시간 이내 기사만)
 def collect_politician_statements():
     print("Starting to collect politician statements from RSS feeds...")
@@ -66,7 +122,13 @@ def collect_politician_statements():
                 # 2단계: 정치인 발언 필터링
                 if is_politician_statement(entry.title, article_content):
                     politician_statements.append(statement_data)
-                    print(f"  Found politician statement: {entry.title}")
+                    
+                    # 3단계: 팩트체크 가능한 발언인지 확인
+                    if is_factcheckable_statement(entry.title, article_content):
+                        factcheckable_statements.append(statement_data)
+                        print(f"  Found factcheckable statement: {entry.title}")
+                    else:
+                        print(f"  Found politician statement but not factcheckable: {entry.title}")
         
         except Exception as e:
             print(f"Error processing feed {feed_url}: {e}")
@@ -87,15 +149,20 @@ def collect_politician_statements():
     # 중복 제거 적용
     all_statements = deduplicate(all_statements)
     politician_statements = deduplicate(politician_statements)
+    factcheckable_statements = deduplicate(factcheckable_statements)
     
     # 단계별 수집 결과 출력
     print("\nCollection Summary:")
     print(f"- All political articles: {len(all_statements)}")
     print(f"- Politician statements: {len(politician_statements)}")
+    print(f"- Factcheckable statements: {len(factcheckable_statements)}")
     
     # 단계별 필터링 적용 (가장 엄격한 것부터 시작)
-    if len(politician_statements) >= 2:
-        print("Using politician statements.")
+    if len(factcheckable_statements) >= 2:
+        print("Using factcheckable statements.")
+        return factcheckable_statements
+    elif len(politician_statements) >= 2:
+        print("Not enough factcheckable statements. Using all politician statements.")
         return politician_statements
     elif len(all_statements) >= 2:
         print("Not enough politician statements. Using all political articles.")
@@ -269,7 +336,7 @@ def get_article_content(url):
         print(f"Error extracting article content: {e}")
         return ""
 
-# GPT-4를 사용하여 발언 팩트체크 (문자열 처리 방식 단순화)
+# GPT-4를 사용하여 발언 팩트체크 (개선된 프롬프트)
 def fact_check_statement(statement):
     # 정치인 이름과 정당 추출
     statement_text = statement['title']
@@ -280,24 +347,40 @@ def fact_check_statement(statement):
     # 발언자 이름 개선
     improved_name = improve_politician_name(politician_name, party)
     
-    # 간소화된 문자열 처리 방식
-    prompt = "다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.\n\n"
-    prompt += f"발언: \"{statement_text}\"\n"
-    prompt += f"출처: {statement.get('url', '확인 필요')}\n\n"
-    prompt += "추가 컨텍스트:\n"
-    prompt += f"{content[:500] if content else '추가 정보 없음'}\n\n"
-    prompt += "발언자와 정당 정보:\n"
-    prompt += f"발언자: {improved_name if improved_name else '확인 필요'}\n"
-    prompt += f"정당: {party if party else '확인 필요'}\n\n"
-    prompt += "다음 형식의 JSON으로 응답해주세요:\n"
-    prompt += "{\n"
-    prompt += '    "politician": "발언자 이름",\n'
-    prompt += '    "party": "소속 정당",\n'
-    prompt += '    "context": "발언 상황",\n'
-    prompt += '    "statement": "원본 발언",\n'
-    prompt += '    "explanation": "실제 사실에 대한 설명"\n'
-    prompt += "}\n\n"
-    prompt += "설명은 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요."
+    # 개선된 프롬프트
+    prompt = """다음 정치인 발언의 사실 여부를 검증해주세요.
+
+    중요 지침:
+    1. 이 발언이 팩트체크 대상인지 먼저 판단하세요. 다음은 팩트체크 대상이 아닙니다:
+       - 미래 계획/공약/정책 제안 ("5대 권역 메가시티를 육성하겠다" 등)
+       - 주관적 의견이나 가치 판단
+       - "하겠다", "추진할 것" 등 미래형 서술
+    
+    2. 팩트체크 대상이 아니면 반드시 is_factcheckable을 false로 설정하고 설명에 그 이유를 밝혀주세요.
+    
+    3. 팩트체크 대상인 경우에만:
+       - 객관적인 사실과 통계를 바탕으로 검증하세요
+       - 가능한 구체적인 수치와 출처를 포함하세요
+    
+    발언: "{statement_text}"
+    출처: {statement.get('url', '확인 필요')}
+    
+    추가 컨텍스트:
+    {content[:500] if content else '추가 정보 없음'}
+    
+    발언자: {improved_name if improved_name else '확인 필요'}
+    정당: {party if party else '확인 필요'}
+    
+    다음 형식의 JSON으로 응답해주세요:
+    {{
+        "politician": "발언자 이름",
+        "party": "소속 정당",
+        "context": "발언 상황",
+        "statement": "원본 발언",
+        "is_factcheckable": true/false,
+        "explanation": "실제 사실에 대한 설명"
+    }}
+    """
     
     try:
         # API 키 확인용 로그 출력
@@ -329,7 +412,7 @@ def fact_check_statement(statement):
                 result = json.loads(response.choices[0].message.content)
             
             # 필요한 키 확인 및 보완
-            required_keys = ["politician", "party", "context", "statement", "explanation"]
+            required_keys = ["politician", "party", "context", "statement", "explanation", "is_factcheckable"]
             for key in required_keys:
                 if key not in result:
                     if key == "politician":
@@ -342,6 +425,8 @@ def fact_check_statement(statement):
                         result[key] = statement_text
                     elif key == "explanation":
                         result[key] = "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다."
+                    elif key == "is_factcheckable":
+                        result[key] = True  # 기본값은 팩트체크 가능으로 설정
             
             # 정당 정보가 비어있거나 확인 필요인 경우
             if not result.get("party") or result["party"] == "확인 필요":
@@ -349,6 +434,12 @@ def fact_check_statement(statement):
                 
             # 현재 날짜 추가
             result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
+            
+            # 팩트체크 가능 여부가 명시적으로 false인 경우
+            if "is_factcheckable" in result and result["is_factcheckable"] == False:
+                print(f"GPT determined statement is not factcheckable: {statement_text}")
+                return None
+                
             return result
         except json.JSONDecodeError as e:
             print(f"Failed to parse JSON: {e}")
@@ -361,6 +452,7 @@ def fact_check_statement(statement):
                 "context": context,
                 "statement": statement_text,
                 "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+                "is_factcheckable": True,
                 "date": datetime.datetime.now().strftime("%Y.%m.%d")
             }
     except Exception as e:
@@ -372,6 +464,7 @@ def fact_check_statement(statement):
             "context": context,
             "statement": statement_text,
             "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+            "is_factcheckable": True,
             "date": datetime.datetime.now().strftime("%Y.%m.%d")
         }
 
@@ -430,7 +523,7 @@ def generate_fact_check_card_html(fact_check):
     
     return card_html
 
-# HTML 파일 업데이트
+# HTML 파일 업데이트 - 중복 방지 로직 추가
 def update_html_file():
     try:
         # 정치인 발언 수집
@@ -440,39 +533,65 @@ def update_html_file():
             print("No statements collected, no updates will be made.")
             return
         
-        # 3개의 팩트체크 카드 생성
-        num_cards = min(3, len(statements))  # 최대 3개, 수집된 발언이 3개 미만이면 해당 개수만큼
-        
-        all_cards_html = ""
-        processed_cards = 0
-        
-        # 랜덤으로 발언을 선택하여 팩트체크
-        random.shuffle(statements)
-        
-        for statement in statements:
-            if processed_cards >= num_cards:
-                break
-                
-            fact_check = fact_check_statement(statement)
-            
-            if not fact_check:
-                print(f"Fact-checking failed for: {statement['title']}")
-                continue
-            
-            # 허위발언카드 HTML 생성
-            card_html = generate_fact_check_card_html(fact_check)
-            all_cards_html += card_html
-            processed_cards += 1
-            
-            print(f"Processed card {processed_cards}/{num_cards}: {fact_check['statement']}")
-        
-        if processed_cards == 0:
-            print("No cards were generated")
-            return
-        
         # 현재 HTML 파일 읽기
         with open('index.html', 'r', encoding='utf-8') as file:
             content = file.read()
+        
+        # 기존 발언 추출
+        existing_statements = extract_existing_statements(content)
+        print(f"Found {len(existing_statements)} existing statements")
+        
+        # 처리된 카드 수와 HTML 저장
+        all_cards_html = ""
+        processed_cards = 0
+        
+        # 중복 방지를 위한 임시 저장소
+        processed_statements = set()
+        
+        # 랜덤으로 발언을 선택하여 팩트체크
+        random.shuffle(statements)
+        max_cards = min(3, len(statements))  # 최대 3개, 수집된 발언이 3개 미만이면 해당 개수만큼
+        
+        for statement in statements:
+            if processed_cards >= max_cards:
+                break
+            
+            # 중복 체크 - 이미 HTML에 있는 발언인지 확인
+            if statement['title'] in existing_statements:
+                print(f"Skipping duplicate statement: {statement['title']}")
+                continue
+                
+            # 추가 중복 체크 - 이미 이번 실행에서 처리한 발언인지 확인
+            if statement['title'] in processed_statements:
+                print(f"Skipping statement already processed in this run: {statement['title']}")
+                continue
+            
+            # 팩트체크 대상인지 한번 더 확인 (이미 collect_politician_statements()에서 필터링했지만 안전을 위해)
+            if not is_factcheckable_statement(statement['title'], statement.get('content', '')):
+                print(f"Skipping non-factcheckable statement: {statement['title']}")
+                continue
+                
+            # 발언 팩트체크
+            fact_check = fact_check_statement(statement)
+            
+            # GPT가 팩트체크 불가능하다고 판단했거나 오류가 발생한 경우
+            if not fact_check:
+                print(f"Skipping statement due to fact check failure: {statement['title']}")
+                continue
+                
+            # 허위발언카드 HTML 생성
+            card_html = generate_fact_check_card_html(fact_check)
+            all_cards_html += card_html
+            
+            # 이번에 처리한 발언 기록
+            processed_statements.add(statement['title'])
+            processed_cards += 1
+            
+            print(f"Processed card {processed_cards}/{max_cards}: {fact_check['statement']}")
+        
+        if processed_cards == 0:
+            print("No cards were generated. No updates will be made.")
+            return
         
         # 내용 출력하여 디버깅
         print(f"HTML file size: {len(content)} bytes")
@@ -517,7 +636,3 @@ def update_html_file():
         print(f"Error updating HTML file: {e}")
         import traceback
         traceback.print_exc()
-
-# 메인 함수 실행
-if __name__ == "__main__":
-    update_html_file()
