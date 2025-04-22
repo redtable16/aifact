@@ -7,6 +7,7 @@ import feedparser
 import time
 import re
 from bs4 import BeautifulSoup
+import openai
 
 # RSS 피드에서 정치인 발언 수집 (24시간 이내 기사만)
 def collect_politician_statements():
@@ -248,7 +249,7 @@ def improve_politician_name(politician_name, party):
             return "정치권 관계자"
     return politician_name
 
-# API 키가 필요 없는 로컬 팩트체크 함수
+# GPT-4를 사용하여 발언 팩트체크
 def fact_check_statement(statement):
     # 정치인 이름과 정당 추출
     statement_text = statement['title']
@@ -256,83 +257,109 @@ def fact_check_statement(statement):
     politician_name, party = extract_politician_and_party(statement_text, content)
     context = get_statement_context(statement)
     
-    # 주제별 키워드 분류
-    economy_keywords = ["경제", "물가", "금리", "부동산", "주택", "세금", "예산", "재정", "투자", "일자리"]
-    politics_keywords = ["개혁", "법안", "국회", "여야", "합의", "대치", "협상", "정책", "입법", "정치"]
-    social_keywords = ["복지", "의료", "교육", "안전", "환경", "기후", "문화", "청년", "노인", "사회"]
-    
-    # 발언 카테고리 결정
-    category = "일반"
-    keyword_counts = {"경제": 0, "정치": 0, "사회": 0}
-    
-    full_text = statement_text + " " + content
-    
-    # 키워드 카운팅
-    for keyword in economy_keywords:
-        if keyword in full_text:
-            keyword_counts["경제"] += 1
-            
-    for keyword in politics_keywords:
-        if keyword in full_text:
-            keyword_counts["정치"] += 1
-            
-    for keyword in social_keywords:
-        if keyword in full_text:
-            keyword_counts["사회"] += 1
-    
-    if max(keyword_counts.values()) > 0:
-        category = max(keyword_counts, key=keyword_counts.get)
-    
-    # 발언 팩트체크
-    explanation = generate_factcheck_by_category(statement_text, content, politician_name, party, category)
-    
     # 발언자 이름 개선
     improved_name = improve_politician_name(politician_name, party)
     
-    # 결과 생성
-    result = {
-        "politician": improved_name,
-        "party": party or "무소속",
-        "context": context,
-        "statement": statement_text,
-        "explanation": explanation,
-        "date": datetime.datetime.now().strftime("%Y.%m.%d")
-    }
+    prompt = f"""
+    다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
     
-    return result
-
-# 카테고리별 팩트체크 설명 생성
-def generate_factcheck_by_category(statement, content, politician_name, party, category):
-    # 경제 관련 발언 팩트체크
-    if category == "경제":
-        if any(x in statement + content for x in ["투자", "예산", "지원금"]):
-            return f"발언에 언급된 금액 관련 주장은 검증이 필요합니다. 구체적인 수치의 맥락과 출처가 명확하지 않으며, 기준 시점이나 산출 방식에 따라 해석이 달라질 수 있습니다. 관련 정부 부처나 기관의 공식 발표를 확인해야 정확한 사실 여부를 판단할 수 있습니다."
-        elif any(x in statement + content for x in ["물가", "인플레이션", "소비자물가지수"]):
-            return f"물가 관련 주장은 통계청이나 한국은행의 공식 지표를 기준으로 판단해야 합니다. 발언에서 사용된 비교 시점이나 특정 품목에 따라 해석이 달라질 수 있으며, 전체 물가 동향과 개별 품목의 가격 변동은 구분해서 평가해야 합니다."
-        else:
-            return f"경제 관련 발언의 정확성은 한국은행, 통계청 등 공신력 있는 기관의 데이터를 기준으로 판단해야 합니다. 현재 시점에서 {politician_name or '해당 정치인'}의 경제 분석은 일부 사실에 기반하고 있으나, 특정 관점이나 해석이 포함되어 있습니다."
+    발언: "{statement_text}"
+    출처: {statement.get('url', '확인 필요')}
     
-    # 정치 관련 발언 팩트체크
-    elif category == "정치":
-        if any(x in statement + content for x in ["법안", "입법", "처리"]):
-            return f"해당 법안의 처리 과정을 국회 회의록과 상임위원회 활동을 토대로 확인한 결과, 여야 간 입장 차이로 진행이 지연된 측면이 있습니다. 법안 처리 지연의 책임은 특정 정당이나 의원에게만 있다고 단정하기 어렵습니다."
-        elif any(x in statement + content for x in ["여론조사", "지지율", "여론"]):
-            return f"여론조사 결과는 조사 기관, 방법, 시기, 표본 특성에 따라 달라질 수 있습니다. 여러 조사 결과를 종합적으로 검토하고 오차 범위를 고려해야 하며, 특정 조사 결과만으로 전체 여론을 판단하는 것은 적절하지 않습니다."
-        else:
-            return f"정치 관련 발언은 객관적 사실과 주관적 해석이 혼합되어 있는 경우가 많습니다. {politician_name or '해당 정치인'}의 주장은 일부 사실에 기반하고 있으나, 정치적 맥락과 입장에 따라 다르게 평가될 수 있습니다."
+    추가 컨텍스트:
+    {content[:500] if content else '추가 정보 없음'}
     
-    # 사회 관련 발언 팩트체크
-    elif category == "사회":
-        if any(x in statement + content for x in ["교육", "학생", "입시"]):
-            return f"교육 정책에 관한 이 발언은 현행 교육제도의 일부 측면만을 다루고 있습니다. 교육부 자료와 학계의 연구를 종합할 때, 보다 포괄적인 접근이 필요한 복합적인 문제입니다."
-        elif any(x in statement + content for x in ["환경", "기후", "탄소"]):
-            return f"환경 및 기후 관련 주장은 국내외 환경 단체와 기관의 연구 자료를 참고해야 합니다. {politician_name or '해당 정치인'}의 발언은 과학적 사실에 부분적으로 기반하고 있으나, 보다 종합적인 분석이 필요합니다."
-        else:
-            return f"사회 문제에 관한 이 발언은 일부 통계와 사례에 기반하고 있으나, 전체적인 맥락과 다양한 이해관계자의 관점을 고려할 필요가 있습니다. 보다 종합적인 분석을 통해 검증해야 합니다."
+    발언자와 정당 정보:
+    발언자: {improved_name if improved_name else '확인 필요'}
+    정당: {party if party else '확인 필요'}
     
-    # 일반 발언 팩트체크
-    else:
-        return f"{politician_name or '해당 정치인'}의 이 발언은 완전한 팩트체크를 위해 추가적인 맥락과 자료가 필요합니다. 발언의 일부 요소는 사실에 기반하고 있으나, 전체적인 맥락과 함께 평가되어야 합니다."
+    다음 형식의 JSON으로 응답해주세요:
+    {{
+        "politician": "발언자 이름",
+        "party": "소속 정당",
+        "context": "발언 상황",
+        "statement": "원본 발언",
+        "explanation": "실제 사실에 대한 설명 (100-150자)"
+    }}
+    
+    설명은 100-150자 내외로 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
+    """
+    
+    try:
+        # API 키 확인용 로그 출력
+        api_key = os.getenv("OPENAI_API_KEY")
+        print(f"API Key available: {api_key is not None and len(api_key) > 0}")
+        
+        # OpenAI API 호출
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model="gpt-4",  # GPT-4 사용
+            messages=[
+                {"role": "system", "content": "당신은 정치인 발언의 사실 관계를 객관적으로 검증하는 팩트체크 전문가입니다. 항상 한국어로 응답하세요."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2  # 더 일관되고 정확한 응답을 위해
+        )
+        
+        # API 응답 디버깅
+        print(f"API response content: {response.choices[0].message.content if hasattr(response, 'choices') and response.choices else 'No content'}")
+        
+        # 응답 파싱 및 예외 처리
+        try:
+            # 정규식을 사용하여 JSON 블록 추출
+            json_match = re.search(r'(\{.*\})', response.choices[0].message.content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            else:
+                # JSON 형식이 아니면 직접 파싱 시도
+                result = json.loads(response.choices[0].message.content)
+            
+            # 필요한 키 확인 및 보완
+            required_keys = ["politician", "party", "context", "statement", "explanation"]
+            for key in required_keys:
+                if key not in result:
+                    if key == "politician":
+                        result[key] = improved_name
+                    elif key == "party":
+                        result[key] = party or "확인 필요"
+                    elif key == "context":
+                        result[key] = context
+                    elif key == "statement":
+                        result[key] = statement_text
+                    elif key == "explanation":
+                        result[key] = "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다."
+            
+            # 정당 정보가 비어있거나 확인 필요인 경우
+            if not result.get("party") or result["party"] == "확인 필요":
+                result["party"] = party or "무소속"
+                
+            # 현재 날짜 추가
+            result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
+            return result
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON: {e}")
+            print(f"Raw response: {response.choices[0].message.content}")
+            
+            # JSON 파싱 실패 시 기본 응답 생성
+            return {
+                "politician": improved_name,
+                "party": party or "무소속",
+                "context": context,
+                "statement": statement_text,
+                "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+                "date": datetime.datetime.now().strftime("%Y.%m.%d")
+            }
+    except Exception as e:
+        print(f"Error fact-checking statement: {e}")
+        # 예외 발생 시 기본 응답 생성
+        return {
+            "politician": improved_name,
+            "party": party or "무소속",
+            "context": context,
+            "statement": statement_text,
+            "explanation": "이 발언의 사실 관계를 검증하기 위해서는 추가적인 자료와 맥락이 필요합니다.",
+            "date": datetime.datetime.now().strftime("%Y.%m.%d")
+        }
 
 # 발언 상황 컨텍스트 추출
 def get_statement_context(statement):
