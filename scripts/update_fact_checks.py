@@ -155,9 +155,10 @@ def contains_verifiable_facts(content):
     
     # 인용 표현
     quote_patterns = [
-        r'"[^"]+"', r''[^']+'', r'발표했', r'밝혔', r'설명했', 
+        r'"[^"]+"', r"'[^']+'", r'발표했', r'밝혔', r'설명했', 
         r'강조했', r'지적했', r'주장했', r'발언했'
     ]
+
     
     # 패턴 검증
     has_numbers = any(re.search(pattern, content) for pattern in number_patterns)
