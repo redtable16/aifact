@@ -1,19 +1,12 @@
-
-
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>팩트체크.ai - 허위 발언 트래커</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" 
-rel="stylesheet">
-    <link 
-href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" 
-rel="stylesheet">
-    <link rel="stylesheet" 
-href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0.0/css/all.min.css">
+    <title>팩트체크.ai - 정치인 발언 검증 서비스</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0.0/css/all.min.css">
     <style>
         :root {
             --democrat-color: #004EA2; /* 더불어민주당 색상 */
@@ -51,8 +44,7 @@ href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0.0/css/all.m
             left: -10px;
             right: -10px;
             bottom: -10px;
-            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, 
-rgba(255,255,255,0) 100%);
+            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%);
             transform: rotate(-45deg);
             pointer-events: none;
         }
@@ -71,6 +63,12 @@ rgba(255,255,255,0) 100%);
         .logo-text i {
             margin-right: 8px;
             font-size: 1.4rem;
+        }
+        
+        .logo-subtitle {
+            font-size: 1rem;
+            margin-top: 0.5rem;
+            opacity: 0.9;
         }
         
         .party-filter {
@@ -286,6 +284,38 @@ rgba(255,255,255,0) 100%);
             color: #888;
         }
         
+        .verification-result {
+            padding: 0.5rem 1rem;
+            font-weight: bold;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .result-true {
+            background-color: #D4EDDA;
+            color: #155724;
+        }
+        
+        .result-mostly-true {
+            background-color: #D1ECF1;
+            color: #0C5460;
+        }
+        
+        .result-partially-true {
+            background-color: #FFF3CD;
+            color: #856404;
+        }
+        
+        .result-false {
+            background-color: #F8D7DA;
+            color: #721C24;
+        }
+        
+        .result-unverifiable {
+            background-color: #E2E3E5;
+            color: #383D41;
+        }
+        
         .falsehood-content {
             padding: 1.2rem 1rem;
             font-size: 1.1rem;
@@ -298,7 +328,7 @@ rgba(255,255,255,0) 100%);
         
         .falsehood-content::before,
         .falsehood-content::after {
-            color: #E53E3E;
+            color: #4A66C8;
             font-size: 1.5rem;
             font-weight: bold;
             position: relative;
@@ -316,14 +346,14 @@ rgba(255,255,255,0) 100%);
         
         .falsehood-correction {
             padding: 1rem;
-            background-color: #FFF5F5;
+            background-color: #F9F9F9;
             font-size: 0.95rem;
-            border-left: 3px solid #E53E3E;
+            border-left: 3px solid #4A66C8;
         }
         
         .correction-label {
             font-weight: bold;
-            color: #E53E3E;
+            color: #4A66C8;
             margin-bottom: 0.5rem;
             display: block;
         }
@@ -411,6 +441,7 @@ rgba(255,255,255,0) 100%);
 <body>
     <div class="header">
         <h1 class="logo-text"><i class="fas fa-check-circle"></i> 팩트체크.ai</h1>
+        <p class="logo-subtitle">정치인 발언 검증 서비스</p>
     </div>
     
     <div class="party-filter">
@@ -424,7 +455,7 @@ rgba(255,255,255,0) 100%);
     <div class="container px-4 py-2">
         <div class="falsehood-list">
             <!-- FACT_CHECK_CARDS -->
-            <!-- 허위 발언 카드 1 -->
+            <!-- 팩트체크 카드 1 -->
             <div class="falsehood-card" data-party="더불어민주당">
                 <div class="falsehood-header">
                     <div class="politician-avatar democrat-avatar">이</div>
@@ -440,18 +471,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-bullhorn"></i> 국회 경제분야 대정부질문 중 발언
                 </div>
+                <div class="verification-result result-false">
+                    <span class="result-label">검증 결과:</span> 사실 아님
+                </div>
                 <div class="falsehood-content">
                     윤석열 정부, 3년간 부동산 가격 2배 상승
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    한국부동산원의 공식 통계에 따르면 2022년 5월부터 2025년 4월까지 전국 
-주택 매매가격 종합지수는 8.5% 상승했으며, 어느 지역도 100% 이상 상승한 곳은 없는 것으로 
-확인됩니다.
+                    <span class="correction-label">검증 설명:</span>
+                    한국부동산원의 공식 통계에 따르면 2022년 5월부터 2025년 4월까지 전국 주택 매매가격 종합지수는 8.5% 상승했으며, 어느 지역도 100% 이상 상승한 곳은 없는 것으로 확인됩니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 2 -->
+            <!-- 팩트체크 카드 2 -->
             <div class="falsehood-card" data-party="국민의힘">
                 <div class="falsehood-header">
                     <div class="politician-avatar ppp-avatar">홍</div>
@@ -467,20 +499,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-newspaper"></i> 파이낸셜뉴스 인터뷰 중 발언
                 </div>
+                <div class="verification-result result-partially-true">
+                    <span class="result-label">검증 결과:</span> 일부 사실
+                </div>
                 <div class="falsehood-content">
-                    한동훈은 법무부 장관시절 법률적으로도 이재명 잡는 것에 실패하고 총선 때 
-정치적으로도 이재명을 잡는데 실패했다
+                    한동훈은 법무부 장관시절 법률적으로도 이재명 잡는 것에 실패하고 총선 때 정치적으로도 이재명을 잡는데 실패했다
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    법무부 장관의 역할은 검찰 수사를 직접 지휘하는 것이 아니며, 한 후보가 
-이재명 후보를 '잡는 데 실패했다'는 주장은 사법 체계 및 검찰 독립성에 대한 오해를 
-야기합니다. 또한 총선 결과는 복합적인 요인들의 영향을 받은 것으로, 특정 인물의 성공/실패로 
-단정할 수 없습니다.
+                    <span class="correction-label">검증 설명:</span>
+                    법무부 장관의 역할은 검찰 수사를 직접 지휘하는 것이 아니며, 한 후보가 이재명 후보를 '잡는 데 실패했다'는 주장은 사법 체계 및 검찰 독립성에 대한 오해를 야기합니다. 또한 총선 결과는 복합적인 요인들의 영향을 받은 것으로, 특정 인물의 성공/실패로 단정할 수 없습니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 3 -->
+            <!-- 팩트체크 카드 3 -->
             <div class="falsehood-card" data-party="국민의힘">
                 <div class="falsehood-header">
                     <div class="politician-avatar ppp-avatar">홍</div>
@@ -496,19 +527,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-newspaper"></i> 파이낸셜뉴스 인터뷰 중 발언
                 </div>
+                <div class="verification-result result-false">
+                    <span class="result-label">검증 결과:</span> 사실 아님
+                </div>
                 <div class="falsehood-content">
-                    비상계엄은 그냥 두시간 해프닝 아니냐. 과거 우리가 알던 계엄은 아니지 
-않나
+                    비상계엄은 그냥 두시간 해프닝 아니냐. 과거 우리가 알던 계엄은 아니지 않나
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    헌법재판소는 비상계엄 선포가 헌법에 위배된다고 판결했으며, 계엄 기간 
-동안 수많은 자영업자와 상인들이 경제적 타격을 입었습니다. 이는 단순한 '해프닝'이 아닌 
-민주주의와 헌정질서에 심각한 영향을 미친 사건으로 평가됩니다.
+                    <span class="correction-label">검증 설명:</span>
+                    헌법재판소는 비상계엄 선포가 헌법에 위배된다고 판결했으며, 계엄 기간 동안 수많은 자영업자와 상인들이 경제적 타격을 입었습니다. 이는 단순한 '해프닝'이 아닌 민주주의와 헌정질서에 심각한 영향을 미친 사건으로 평가됩니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 4 -->
+            <!-- 팩트체크 카드 4 -->
             <div class="falsehood-card" data-party="더불어민주당">
                 <div class="falsehood-header">
                     <div class="politician-avatar democrat-avatar">이</div>
@@ -524,20 +555,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-building"></i> 금융투자협회 간담회 중 발언
                 </div>
+                <div class="verification-result result-false">
+                    <span class="result-label">검증 결과:</span> 사실 아님
+                </div>
                 <div class="falsehood-content">
-                    PBR이 0.1~0.2배인 회사는 적대적 인수합병(M&A) 등을 해서 빨리 청산해야 
-한다
+                    PBR이 0.1~0.2배인 회사는 적대적 인수합병(M&A) 등을 해서 빨리 청산해야 한다
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    한국거래소 자료에 따르면 PBR 0.3배 미만 기업 중에는 롯데하이마트, 
-롯데쇼핑 등 자산 가치가 높은 대기업도 다수 포함되어 있습니다. 단순히 PBR만으로 기업 청산을 
-주장하는 것은 해당 기업의 자산 가치, 미래 성장성, 산업 특성 등을 고려하지 않은 부적절한 
-판단입니다.
+                    <span class="correction-label">검증 설명:</span>
+                    한국거래소 자료에 따르면 PBR 0.3배 미만 기업 중에는 롯데하이마트, 롯데쇼핑 등 자산 가치가 높은 대기업도 다수 포함되어 있습니다. 단순히 PBR만으로 기업 청산을 주장하는 것은 해당 기업의 자산 가치, 미래 성장성, 산업 특성 등을 고려하지 않은 부적절한 판단입니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 5 -->
+            <!-- 팩트체크 카드 5 -->
             <div class="falsehood-card" data-party="개혁신당">
                 <div class="falsehood-header">
                     <div class="politician-avatar reform-avatar">이</div>
@@ -553,20 +583,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-microphone"></i> 세종시 출근길 인사 발언
                 </div>
+                <div class="verification-result result-false">
+                    <span class="result-label">검증 결과:</span> 사실 아님
+                </div>
                 <div class="falsehood-content">
-                    취임 직후 세종시에 신속하게 건립을 시작한다면 차기 대통령 임기 내 
-세종시대를 시작할 수 있을 것
+                    취임 직후 세종시에 신속하게 건립을 시작한다면 차기 대통령 임기 내 세종시대를 시작할 수 있을 것
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    헌법재판소는 2004년 신행정수도법에 대해 '수도가 서울인 것은 
-관습헌법'이라며 위헌 결정을 내린 바 있습니다. 대통령 집무실과 국회의 세종 이전은 개헌 등 
-헌법적 절차가 필요한 사안으로, 단순히 건물을 건립하는 것만으로는 차기 대통령 임기 내에 
-완성하기 어려운 과제입니다.
+                    <span class="correction-label">검증 설명:</span>
+                    헌법재판소는 2004년 신행정수도법에 대해 '수도가 서울인 것은 관습헌법'이라며 위헌 결정을 내린 바 있습니다. 대통령 집무실과 국회의 세종 이전은 개헌 등 헌법적 절차가 필요한 사안으로, 단순히 건물을 건립하는 것만으로는 차기 대통령 임기 내에 완성하기 어려운 과제입니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 6 -->
+            <!-- 팩트체크 카드 6 -->
             <div class="falsehood-card" data-party="국민의힘">
                 <div class="falsehood-header">
                     <div class="politician-avatar ppp-avatar">나</div>
@@ -582,20 +611,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-video"></i> 국민의힘 비전발표회 중 발언
                 </div>
+                <div class="verification-result result-mostly-true">
+                    <span class="result-label">검증 결과:</span> 대체로 사실
+                </div>
                 <div class="falsehood-content">
-                    대통령이 되면 미국과 긴밀히 논의해 '핵 주권 확보 비상 로드맵'에 
-돌입하겠다
+                    대통령이 되면 미국과 긴밀히 논의해 '핵 주권 확보 비상 로드맵'에 돌입하겠다
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    미국 국무부는 "한미는 핵확산금지조약(NPT)을 강력히 지지하며, 조약에 
-따른 의무를 준수한다"는 입장을 분명히 표명했으며, 미국 에너지부는 한국을 '민감국가' 명단에 
-포함시켰습니다. 핵무장론은 국제조약 위반 소지가 있으며, 한국의 안보와 첨단기술 교류에 
-부정적 영향을 미칠 수 있습니다.
+                    <span class="correction-label">검증 설명:</span>
+                    미국 국무부는 "한미는 핵확산금지조약(NPT)을 강력히 지지하며, 조약에 따른 의무를 준수한다"는 입장을 분명히 표명했으며, 미국 에너지부는 한국을 '민감국가' 명단에 포함시켰습니다. 핵무장론은 국제조약 위반 소지가 있으며, 한국의 안보와 첨단기술 교류에 부정적 영향을 미칠 수 있습니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 7 -->
+            <!-- 팩트체크 카드 7 -->
             <div class="falsehood-card" data-party="조국혁신당">
                 <div class="falsehood-header">
                     <div class="politician-avatar choi-avatar">조</div>
@@ -611,19 +639,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-pen"></i> 옥중 서신 중 발언
                 </div>
+                <div class="verification-result result-partially-true">
+                    <span class="result-label">검증 결과:</span> 일부 사실
+                </div>
                 <div class="falsehood-content">
-                    혁신당은 야5당은 내란특검 실시, 검찰 등 권력기관 개혁 등 여섯 가지 
-합의사항을 발표했는데 이는 혁신당이 줄기차게 요구했던 것
+                    혁신당은 야5당은 내란특검 실시, 검찰 등 권력기관 개혁 등 여섯 가지 합의사항을 발표했는데 이는 혁신당이 줄기차게 요구했던 것
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    야5당 합의 내용은 조국혁신당을 포함한 모든 야당들이 공동으로 논의하고 
-발전시킨 결과물입니다. 특히 내란특검 실시와 권력기관 개혁은 더불어민주당과 개혁신당이 
-지속적으로 주장해온 의제이며, 이를 특정 정당의 성과로만 규정하는 것은 사실과 다릅니다.
+                    <span class="correction-label">검증 설명:</span>
+                    야5당 합의 내용은 조국혁신당을 포함한 모든 야당들이 공동으로 논의하고 발전시킨 결과물입니다. 특히 내란특검 실시와 권력기관 개혁은 더불어민주당과 개혁신당이 지속적으로 주장해온 의제이며, 이를 특정 정당의 성과로만 규정하는 것은 사실과 다릅니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 8 -->
+            <!-- 팩트체크 카드 8 -->
             <div class="falsehood-card" data-party="국민의힘">
                 <div class="falsehood-header">
                     <div class="politician-avatar ppp-avatar">한</div>
@@ -639,20 +667,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-microphone"></i> YTN 라디오 인터뷰 중 발언
                 </div>
+                <div class="verification-result result-partially-true">
+                    <span class="result-label">검증 결과:</span> 일부 사실
+                </div>
                 <div class="falsehood-content">
-                    저는 구태 정치 경험이 없다. 명태균 같은 정치 브로커와 엮였던 경험도 
-없다
+            저는 구태 정치 경험이 없다. 명태균 같은 정치 브로커와 엮였던 경험도 없다
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    홍준표 후보를 겨냥한 이 발언은 맥락을 벗어난 부분적 사실에 기반한 
-주장입니다. 명태균씨에 대한 검찰 조사 결과, 특정 정치인에 대한 명확한 불법 로비 증거는 
-밝혀지지 않았으며, '정치 브로커'와의 연관성만으로 '구태정치'로 규정하는 것은 사실관계를 
-단순화한 주장입니다.
+                    <span class="correction-label">검증 설명:</span>
+                    홍준표 후보를 겨냥한 이 발언은 맥락을 벗어난 부분적 사실에 기반한 주장입니다. 명태균씨에 대한 검찰 조사 결과, 특정 정치인에 대한 명확한 불법 로비 증거는 밝혀지지 않았으며, '정치 브로커'와의 연관성만으로 '구태정치'로 규정하는 것은 사실관계를 단순화한 주장입니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 9 -->
+            <!-- 팩트체크 카드 9 -->
             <div class="falsehood-card" data-party="조국혁신당">
                 <div class="falsehood-header">
                     <div class="politician-avatar choi-avatar">김</div>
@@ -668,18 +695,19 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-comments"></i> 당 최고위원회의 브리핑 중 발언
                 </div>
+                <div class="verification-result result-unverifiable">
+                    <span class="result-label">검증 결과:</span> 확인 불가
+                </div>
                 <div class="falsehood-content">
                     국민의힘과 야당 간 정치거래가 있었고, 이를 통해 탄핵이 무산되었다
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    국회 회의록과 언론보도에 따르면, 탄핵 무산은 국민의힘 내부의 의사결정 
-과정과 헌법재판소 결정 등 다양한 요인이 복합적으로 작용한 결과입니다. '정치거래'가 있었다는 
-주장은 구체적인 증거 없이 제기된 의혹으로, 사실관계가 확인되지 않았습니다.
+                    <span class="correction-label">검증 설명:</span>
+                    국회 회의록과 언론보도에 따르면, 탄핵 무산은 국민의힘 내부의 의사결정 과정과 헌법재판소 결정 등 다양한 요인이 복합적으로 작용한 결과입니다. '정치거래'가 있었다는 주장은 구체적인 증거 없이 제기된 의혹으로, 사실관계가 확인되지 않았습니다.
                 </div>
             </div>
             
-            <!-- 허위 발언 카드 10 -->
+            <!-- 팩트체크 카드 10 -->
             <div class="falsehood-card" data-party="개혁신당">
                 <div class="falsehood-header">
                     <div class="politician-avatar reform-avatar">허</div>
@@ -695,29 +723,29 @@ rgba(255,255,255,0) 100%);
                 <div class="falsehood-source">
                     <i class="fas fa-tv"></i> TV 토론회 중 발언
                 </div>
+                <div class="verification-result result-false">
+                    <span class="result-label">검증 결과:</span> 사실 아님
+                </div>
                 <div class="falsehood-content">
                     정부 부처의 세종시 이전으로 행정 효율성이 30% 이상 감소했다
                 </div>
                 <div class="falsehood-correction">
-                    <span class="correction-label">실제 사실:</span>
-                    행정안전부와 기획재정부의 공식 자료에 따르면, 세종시 이전 이후 행정 
-효율성에 대한 정량적 평가에서 30% 감소와 같은 수치는 확인되지 않습니다. 오히려 화상회의 
-시스템 도입 등 디지털 전환으로 인해 행정 효율성이 일부 개선된 영역도 있는 것으로 
-나타났습니다.
+                    <span class="correction-label">검증 설명:</span>
+                    행정안전부와 기획재정부의 공식 자료에 따르면, 세종시 이전 이후 행정 효율성에 대한 정량적 평가에서 30% 감소와 같은 수치는 확인되지 않습니다. 오히려 화상회의 시스템 도입 등 디지털 전환으로 인해 행정 효율성이 일부 개선된 영역도 있는 것으로 나타났습니다.
                 </div>
             </div>
         </div>
         
         <div class="no-results" style="display: none;">
             <i class="fas fa-search"></i>
-            <p>선택한 정당의 허위 발언 정보가 없습니다.</p>
+            <p>선택한 정당의 검증된 발언 정보가 없습니다.</p>
         </div>
         
         <button class="load-more" id="loadMoreBtn">더 보기</button>
     </div>
     
     <div class="footer">
-        <p>팩트체크.ai © 2025 | 네이버 뉴스 기반 정치인 발언 팩트체크</p>
+        <p>팩트체크.ai © 2025 | 뉴스 기반 정치인 발언 검증 서비스</p>
         <p class="text-xs mt-2 text-gray-500">최종 업데이트: 2025년 4월 21일</p>
     </div>
     
@@ -822,8 +850,7 @@ rgba(255,255,255,0) 100%);
                         
                         // 애니메이션 효과 추가
                         if (i >= (currentPage - 1) * cardsPerPage) {
-                            filteredCards[i].style.animation = 'fadeIn 0.5s ease-out 
-forwards';
+                            filteredCards[i].style.animation = 'fadeIn 0.5s ease-out forwards';
                         } else {
                             filteredCards[i].style.animation = 'none';
                         }
@@ -849,12 +876,8 @@ forwards';
     </script>
 </body>
 </html>
-    <script id="html_badge_script1">
-        window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
-            
-"remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDjY7SiWoGIQv%2B6qcwfdL3s2Aj%2FnLPF%2F8rgiNyRfNaqeVbovSuZpW%2FM4jmTY8mEC7kDhwmCTsitv4lxrCEmqA0%2BL0Kd0PBlCRrkKWDYBYRc1j8gz7uohfh1dKi%2BB214xQFEwSv6WecGV7CNK0nYf%2F4yj5JCntTR9fqftBcF%2FTS093p42WmX7wgpnL8WIEOEvs%2BIUXo%2FcozY9X3%2BqXdFr3Oq3%2BBJVCa6PJ0V%2Bxj4powwt4U5pKVUEFW%2FjiYWF4ONhU7Oos75M1jsvyLV%2B82TC6BHw2D5QUNfcjVWkVeLxdrNAph5GAh%2Fwbu9Q4wpjj9NAH5A3rNh9ICI3WzCJpgiNVE2WDz%2BMkz1N3uqN2K2oUvymBX%2FwSUWeK661EvVGvBK0fWmQNG6qtT1NnlHpylzYLn8bCI7BDB%2BtqjZt27YTZFyWyFSO7pznEfsvKb0esioi%2B0cg4lZro1SWh0j45eYMOfzC89VGpv%2Fv%2FS0JsclkiqwtEUXpnjVxNtV1ElTdYWYicbQ%3D%3D";
-        window.__genspark_locale = "ko-KR";
-        window.__genspark_token = 
-"To/BnjzloZ3UfQdcSaYfDjY7SiWoGIQv+6qcwfdL3s2Aj/nLPF/8rgiNyRfNaqeVbovSuZpW/M4jmTY8mEC7kDhwmCTsitv4lxrCEmqA0+L0Kd0PBlCRrkKWDYBYRc1j8gz7uohfh1dKi+B214xQFEwSv6WecGV7CNK0nYf/4yj5JCntTR9fqftBcF/TS093p42WmX7wgpnL8WIEOEvs+IUXo/cozY9X3+qXdFr3Oq3+BJVCa6PJ0V+xj4powwt4U5pKVUEFW/jiYWF4ONhU7Oos75M1jsvyLV+82TC6BHw2D5QUNfcjVWkVeLxdrNAph5GAh/wbu9Q4wpjj9NAH5A3rNh9ICI3WzCJpgiNVE2WDz+Mkz1N3uqN2K2oUvymBX/wSUWeK661EvVGvBK0fWmQNG6qtT1NnlHpylzYLn8bCI7BDB+tqjZt27YTZFyWyFSO7pznEfsvKb0esioi+0cg4lZro1SWh0j45eYMOfzC89VGpv/v/S0JsclkiqwtEUXpnjVxNtV1ElTdYWYicbQ==";
-    </script>
-    
+<script id="html_badge_script1">
+    window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDjY7SiWoGIQv%2B6qcwfdL3s2Aj%2FnLPF%2F8rgiNyRfNaqeVbovSuZpW%2FM4jmTY8mEC7kDhwmCTsitv4lxrCEmqA0%2BL0Kd0PBlCRrkKWDYBYRc1j8gz7uohfh1dKi%2BB214xQFEwSv6WecGV7CNK0nYf%2F4yj5JCntTR9fqftBcF%2FTS093p42WmX7wgpnL8WIEOEvs%2BIUXo%2FcozY9X3%2BqXdFr3Oq3%2BBJVCa6PJ0V%2Bxj4powwt4U5pKVUEFW%2FjiYWF4ONhU7Oos75M1jsvyLV%2B82TC6BHw2D5QUNfcjVWkVeLxdrNAph5GAh%2Fwbu9Q4wpjj9NAH5A3rNh9ICI3WzCJpgiNVE2WDz%2BMkz1N3uqN2K2oUvymBX%2FwSUWeK661EvVGvBK0fWmQNG6qtT1NnlHpylzYLn8bCI7BDB%2BtqjZt27YTZFyWyFSO7pznEfsvKb0esioi%2B0cg4lZro1SWh0j45eYMOfzC89VGpv%2Fv%2FS0JsclkiqwtEUXpnjVxNtV1ElTdYWYicbQ%3D%3D";
+    window.__genspark_locale = "ko-KR";
+    window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDjY7SiWoGIQv+6qcwfdL3s2Aj/nLPF/8rgiNyRfNaqeVbovSuZpW/M4jmTY8mEC7kDhwmCTsitv4lxrCEmqA0+L0Kd0PBlCRrkKWDYBYRc1j8gz7uohfh1dKi+B214xQFEwSv6WecGV7CNK0nYf/4yj5JCntTR9fqftBcF/TS093p42WmX7wgpnL8WIEOEvs+IUXo/cozY9X3+qXdFr3Oq3+BJVCa6PJ0V+xj4powwt4U5pKVUEFW/jiYWF4ONhU7Oos75M1jsvyLV+82TC6BHw2D5QUNfcjVWkVeLxdrNAph5GAh/wbu9Q4wpjj9NAH5A3rNh9ICI3WzCJpgiNVE2WDz+Mkz1N3uqN2K2oUvymBX/wSUWeK661EvVGvBK0fWmQNG6qtT1NnlHpylzYLn8bCI7BDB+tqjZt27YTZFyWyFSO7pznEfsvKb0esioi+0cg4lZro1SWh0j45eYMOfzC89VGpv/v/S0JsclkiqwtEUXpnjVxNtV1ElTdYWYicbQ==";
+</script>
