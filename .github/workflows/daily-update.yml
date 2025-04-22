@@ -2,8 +2,8 @@ name: Daily Fact Check Update
 
 on:
   schedule:
-    - cron: '30 23 * * *'  # 매일 UTC 23시 30분 (한국 시간 오전 8시 30분)에 실행
-  workflow_dispatch:  # 수동 실행 옵션도 추가
+    - cron: '30 23 * * *'
+  workflow_dispatch:
 
 jobs:
   update-fact-checks:
