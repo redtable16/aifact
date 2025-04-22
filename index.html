@@ -1,0 +1,860 @@
+
+
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>팩트체크.ai - 허위 발언 트래커</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" 
+rel="stylesheet">
+    <link 
+href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" 
+rel="stylesheet">
+    <link rel="stylesheet" 
+href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --democrat-color: #004EA2; /* 더불어민주당 색상 */
+            --ppp-color: #E61E2B; /* 국민의힘 색상 */
+            --reform-color: #5CB85C; /* 개혁신당 색상 */
+            --choi-color: #F39C12; /* 조국혁신당 색상 */
+            --bg-color: #f5f7fa;
+            --card-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        
+        * {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4A66C8, #3B5998);
+            padding: 1.5rem 1rem;
+            color: white;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            right: -10px;
+            bottom: -10px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, 
+rgba(255,255,255,0) 100%);
+            transform: rotate(-45deg);
+            pointer-events: none;
+        }
+        
+        .logo-text {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin: 0;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .logo-text i {
+            margin-right: 8px;
+            font-size: 1.4rem;
+        }
+        
+        .party-filter {
+            display: flex;
+            overflow-x: auto;
+            padding: 1rem 0.5rem;
+            gap: 0.5rem;
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .party-filter::-webkit-scrollbar {
+            height: 3px;
+        }
+        
+        .party-filter::-webkit-scrollbar-thumb {
+            background-color: rgba(0,0,0,0.2);
+            border-radius: 3px;
+        }
+        
+        .party-tab {
+            padding: 0.6rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            background: white;
+            min-width: 80px;
+            text-align: center;
+        }
+        
+        .party-tab:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .party-tab.active {
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            transform: translateY(-1px);
+        }
+        
+        .party-tab[data-party="전체"].active {
+            background-color: #555;
+            border-color: #555;
+        }
+        
+        .party-tab[data-party="더불어민주당"] {
+            color: var(--democrat-color);
+            border-color: var(--democrat-color);
+        }
+        
+        .party-tab[data-party="더불어민주당"].active {
+            background-color: var(--democrat-color);
+            color: white;
+        }
+        
+        .party-tab[data-party="국민의힘"] {
+            color: var(--ppp-color);
+            border-color: var(--ppp-color);
+        }
+        
+        .party-tab[data-party="국민의힘"].active {
+            background-color: var(--ppp-color);
+            color: white;
+        }
+        
+        .party-tab[data-party="개혁신당"] {
+            color: var(--reform-color);
+            border-color: var(--reform-color);
+        }
+        
+        .party-tab[data-party="개혁신당"].active {
+            background-color: var(--reform-color);
+            color: white;
+        }
+        
+        .party-tab[data-party="조국혁신당"] {
+            color: var(--choi-color);
+            border-color: var(--choi-color);
+        }
+        
+        .party-tab[data-party="조국혁신당"].active {
+            background-color: var(--choi-color);
+            color: white;
+        }
+        
+        .falsehood-card {
+            background-color: white;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 1.2rem;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .falsehood-header {
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .politician-avatar {
+            width: 3rem;
+            height: 3rem;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            margin-right: 0.8rem;
+            flex-shrink: 0;
+        }
+        
+        .democrat-avatar {
+            background-color: rgba(0, 78, 162, 0.15);
+            color: var(--democrat-color);
+        }
+        
+        .ppp-avatar {
+            background-color: rgba(230, 30, 43, 0.15);
+            color: var(--ppp-color);
+        }
+        
+        .reform-avatar {
+            background-color: rgba(92, 184, 92, 0.15);
+            color: var(--reform-color);
+        }
+        
+        .choi-avatar {
+            background-color: rgba(243, 156, 18, 0.15);
+            color: var(--choi-color);
+        }
+        
+        .politician-info {
+            flex: 1;
+        }
+        
+        .politician-name {
+            font-weight: 600;
+            font-size: 1rem;
+            color: #333;
+            display: flex;
+            align-items: center;
+        }
+        
+        .party-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        
+        .democrat-indicator {
+            background-color: var(--democrat-color);
+        }
+        
+        .ppp-indicator {
+            background-color: var(--ppp-color);
+        }
+        
+        .reform-indicator {
+            background-color: var(--reform-color);
+        }
+        
+        .choi-indicator {
+            background-color: var(--choi-color);
+        }
+        
+        .party-name-small {
+            font-size: 0.85rem;
+            color: #777;
+            margin-top: 0.2rem;
+        }
+        
+        .falsehood-date {
+            font-size: 0.8rem;
+            color: #888;
+            background-color: #f7f7f7;
+            padding: 0.3rem 0.5rem;
+            border-radius: 10px;
+            flex-shrink: 0;
+        }
+        
+        .falsehood-source {
+            padding: 0.7rem 1rem;
+            font-size: 0.8rem;
+            color: #666;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .falsehood-source i {
+            margin-right: 5px;
+            color: #888;
+        }
+        
+        .falsehood-content {
+            padding: 1.2rem 1rem;
+            font-size: 1.1rem;
+            line-height: 1.5;
+            border-bottom: 1px solid #f0f0f0;
+            font-weight: 500;
+            color: #333;
+            position: relative;
+        }
+        
+        .falsehood-content::before,
+        .falsehood-content::after {
+            color: #E53E3E;
+            font-size: 1.5rem;
+            font-weight: bold;
+            position: relative;
+        }
+        
+        .falsehood-content::before {
+            content: '"';
+            margin-right: 2px;
+        }
+        
+        .falsehood-content::after {
+            content: '"';
+            margin-left: 2px;
+        }
+        
+        .falsehood-correction {
+            padding: 1rem;
+            background-color: #FFF5F5;
+            font-size: 0.95rem;
+            border-left: 3px solid #E53E3E;
+        }
+        
+        .correction-label {
+            font-weight: bold;
+            color: #E53E3E;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        
+        .load-more {
+            display: block;
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(to right, #4A66C8, #3B5998);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 500;
+            margin: 1.5rem 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .load-more:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .load-more:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin-right: 0.5rem;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 1.5rem 1rem;
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 2rem;
+            border-top: 1px solid #eee;
+            background-color: white;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #666;
+            font-size: 1rem;
+            background-color: white;
+            border-radius: 8px;
+            margin: 1rem 0;
+            box-shadow: var(--card-shadow);
+        }
+        
+        .no-results i {
+            font-size: 3rem;
+            color: #ddd;
+            margin-bottom: 1rem;
+            display: block;
+        }
+        
+        @media (min-width: 768px) {
+            .container {
+                max-width: 768px;
+                margin: 0 auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="logo-text"><i class="fas fa-check-circle"></i> 팩트체크.ai</h1>
+    </div>
+    
+    <div class="party-filter">
+        <button class="party-tab active" data-party="전체">전체</button>
+        <button class="party-tab" data-party="더불어민주당">더불어민주당</button>
+        <button class="party-tab" data-party="국민의힘">국민의힘</button>
+        <button class="party-tab" data-party="개혁신당">개혁신당</button>
+        <button class="party-tab" data-party="조국혁신당">조국혁신당</button>
+    </div>
+    
+    <div class="container px-4 py-2">
+        <div class="falsehood-list">
+            <!-- FACT_CHECK_CARDS -->
+            <!-- 허위 발언 카드 1 -->
+            <div class="falsehood-card" data-party="더불어민주당">
+                <div class="falsehood-header">
+                    <div class="politician-avatar democrat-avatar">이</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator democrat-indicator"></span>
+                            이재명
+                        </div>
+                        <div class="party-name-small">더불어민주당</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.19</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-bullhorn"></i> 국회 경제분야 대정부질문 중 발언
+                </div>
+                <div class="falsehood-content">
+                    윤석열 정부, 3년간 부동산 가격 2배 상승
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    한국부동산원의 공식 통계에 따르면 2022년 5월부터 2025년 4월까지 전국 
+주택 매매가격 종합지수는 8.5% 상승했으며, 어느 지역도 100% 이상 상승한 곳은 없는 것으로 
+확인됩니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 2 -->
+            <div class="falsehood-card" data-party="국민의힘">
+                <div class="falsehood-header">
+                    <div class="politician-avatar ppp-avatar">홍</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator ppp-indicator"></span>
+                            홍준표
+                        </div>
+                        <div class="party-name-small">국민의힘</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.20</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-newspaper"></i> 파이낸셜뉴스 인터뷰 중 발언
+                </div>
+                <div class="falsehood-content">
+                    한동훈은 법무부 장관시절 법률적으로도 이재명 잡는 것에 실패하고 총선 때 
+정치적으로도 이재명을 잡는데 실패했다
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    법무부 장관의 역할은 검찰 수사를 직접 지휘하는 것이 아니며, 한 후보가 
+이재명 후보를 '잡는 데 실패했다'는 주장은 사법 체계 및 검찰 독립성에 대한 오해를 
+야기합니다. 또한 총선 결과는 복합적인 요인들의 영향을 받은 것으로, 특정 인물의 성공/실패로 
+단정할 수 없습니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 3 -->
+            <div class="falsehood-card" data-party="국민의힘">
+                <div class="falsehood-header">
+                    <div class="politician-avatar ppp-avatar">홍</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator ppp-indicator"></span>
+                            홍준표
+                        </div>
+                        <div class="party-name-small">국민의힘</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.20</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-newspaper"></i> 파이낸셜뉴스 인터뷰 중 발언
+                </div>
+                <div class="falsehood-content">
+                    비상계엄은 그냥 두시간 해프닝 아니냐. 과거 우리가 알던 계엄은 아니지 
+않나
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    헌법재판소는 비상계엄 선포가 헌법에 위배된다고 판결했으며, 계엄 기간 
+동안 수많은 자영업자와 상인들이 경제적 타격을 입었습니다. 이는 단순한 '해프닝'이 아닌 
+민주주의와 헌정질서에 심각한 영향을 미친 사건으로 평가됩니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 4 -->
+            <div class="falsehood-card" data-party="더불어민주당">
+                <div class="falsehood-header">
+                    <div class="politician-avatar democrat-avatar">이</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator democrat-indicator"></span>
+                            이재명
+                        </div>
+                        <div class="party-name-small">더불어민주당</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.21</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-building"></i> 금융투자협회 간담회 중 발언
+                </div>
+                <div class="falsehood-content">
+                    PBR이 0.1~0.2배인 회사는 적대적 인수합병(M&A) 등을 해서 빨리 청산해야 
+한다
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    한국거래소 자료에 따르면 PBR 0.3배 미만 기업 중에는 롯데하이마트, 
+롯데쇼핑 등 자산 가치가 높은 대기업도 다수 포함되어 있습니다. 단순히 PBR만으로 기업 청산을 
+주장하는 것은 해당 기업의 자산 가치, 미래 성장성, 산업 특성 등을 고려하지 않은 부적절한 
+판단입니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 5 -->
+            <div class="falsehood-card" data-party="개혁신당">
+                <div class="falsehood-header">
+                    <div class="politician-avatar reform-avatar">이</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator reform-indicator"></span>
+                            이준석
+                        </div>
+                        <div class="party-name-small">개혁신당</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.21</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-microphone"></i> 세종시 출근길 인사 발언
+                </div>
+                <div class="falsehood-content">
+                    취임 직후 세종시에 신속하게 건립을 시작한다면 차기 대통령 임기 내 
+세종시대를 시작할 수 있을 것
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    헌법재판소는 2004년 신행정수도법에 대해 '수도가 서울인 것은 
+관습헌법'이라며 위헌 결정을 내린 바 있습니다. 대통령 집무실과 국회의 세종 이전은 개헌 등 
+헌법적 절차가 필요한 사안으로, 단순히 건물을 건립하는 것만으로는 차기 대통령 임기 내에 
+완성하기 어려운 과제입니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 6 -->
+            <div class="falsehood-card" data-party="국민의힘">
+                <div class="falsehood-header">
+                    <div class="politician-avatar ppp-avatar">나</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator ppp-indicator"></span>
+                            나경원
+                        </div>
+                        <div class="party-name-small">국민의힘</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.17</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-video"></i> 국민의힘 비전발표회 중 발언
+                </div>
+                <div class="falsehood-content">
+                    대통령이 되면 미국과 긴밀히 논의해 '핵 주권 확보 비상 로드맵'에 
+돌입하겠다
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    미국 국무부는 "한미는 핵확산금지조약(NPT)을 강력히 지지하며, 조약에 
+따른 의무를 준수한다"는 입장을 분명히 표명했으며, 미국 에너지부는 한국을 '민감국가' 명단에 
+포함시켰습니다. 핵무장론은 국제조약 위반 소지가 있으며, 한국의 안보와 첨단기술 교류에 
+부정적 영향을 미칠 수 있습니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 7 -->
+            <div class="falsehood-card" data-party="조국혁신당">
+                <div class="falsehood-header">
+                    <div class="politician-avatar choi-avatar">조</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator choi-indicator"></span>
+                            조국
+                        </div>
+                        <div class="party-name-small">조국혁신당</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.18</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-pen"></i> 옥중 서신 중 발언
+                </div>
+                <div class="falsehood-content">
+                    혁신당은 야5당은 내란특검 실시, 검찰 등 권력기관 개혁 등 여섯 가지 
+합의사항을 발표했는데 이는 혁신당이 줄기차게 요구했던 것
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    야5당 합의 내용은 조국혁신당을 포함한 모든 야당들이 공동으로 논의하고 
+발전시킨 결과물입니다. 특히 내란특검 실시와 권력기관 개혁은 더불어민주당과 개혁신당이 
+지속적으로 주장해온 의제이며, 이를 특정 정당의 성과로만 규정하는 것은 사실과 다릅니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 8 -->
+            <div class="falsehood-card" data-party="국민의힘">
+                <div class="falsehood-header">
+                    <div class="politician-avatar ppp-avatar">한</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator ppp-indicator"></span>
+                            한동훈
+                        </div>
+                        <div class="party-name-small">국민의힘</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.21</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-microphone"></i> YTN 라디오 인터뷰 중 발언
+                </div>
+                <div class="falsehood-content">
+                    저는 구태 정치 경험이 없다. 명태균 같은 정치 브로커와 엮였던 경험도 
+없다
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    홍준표 후보를 겨냥한 이 발언은 맥락을 벗어난 부분적 사실에 기반한 
+주장입니다. 명태균씨에 대한 검찰 조사 결과, 특정 정치인에 대한 명확한 불법 로비 증거는 
+밝혀지지 않았으며, '정치 브로커'와의 연관성만으로 '구태정치'로 규정하는 것은 사실관계를 
+단순화한 주장입니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 9 -->
+            <div class="falsehood-card" data-party="조국혁신당">
+                <div class="falsehood-header">
+                    <div class="politician-avatar choi-avatar">김</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator choi-indicator"></span>
+                            김선민
+                        </div>
+                        <div class="party-name-small">조국혁신당</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.18</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-comments"></i> 당 최고위원회의 브리핑 중 발언
+                </div>
+                <div class="falsehood-content">
+                    국민의힘과 야당 간 정치거래가 있었고, 이를 통해 탄핵이 무산되었다
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    국회 회의록과 언론보도에 따르면, 탄핵 무산은 국민의힘 내부의 의사결정 
+과정과 헌법재판소 결정 등 다양한 요인이 복합적으로 작용한 결과입니다. '정치거래'가 있었다는 
+주장은 구체적인 증거 없이 제기된 의혹으로, 사실관계가 확인되지 않았습니다.
+                </div>
+            </div>
+            
+            <!-- 허위 발언 카드 10 -->
+            <div class="falsehood-card" data-party="개혁신당">
+                <div class="falsehood-header">
+                    <div class="politician-avatar reform-avatar">허</div>
+                    <div class="politician-info">
+                        <div class="politician-name">
+                            <span class="party-indicator reform-indicator"></span>
+                            허은아
+                        </div>
+                        <div class="party-name-small">개혁신당</div>
+                    </div>
+                    <div class="falsehood-date">2025.04.15</div>
+                </div>
+                <div class="falsehood-source">
+                    <i class="fas fa-tv"></i> TV 토론회 중 발언
+                </div>
+                <div class="falsehood-content">
+                    정부 부처의 세종시 이전으로 행정 효율성이 30% 이상 감소했다
+                </div>
+                <div class="falsehood-correction">
+                    <span class="correction-label">실제 사실:</span>
+                    행정안전부와 기획재정부의 공식 자료에 따르면, 세종시 이전 이후 행정 
+효율성에 대한 정량적 평가에서 30% 감소와 같은 수치는 확인되지 않습니다. 오히려 화상회의 
+시스템 도입 등 디지털 전환으로 인해 행정 효율성이 일부 개선된 영역도 있는 것으로 
+나타났습니다.
+                </div>
+            </div>
+        </div>
+        
+        <div class="no-results" style="display: none;">
+            <i class="fas fa-search"></i>
+            <p>선택한 정당의 허위 발언 정보가 없습니다.</p>
+        </div>
+        
+        <button class="load-more" id="loadMoreBtn">더 보기</button>
+    </div>
+    
+    <div class="footer">
+        <p>팩트체크.ai © 2025 | 네이버 뉴스 기반 정치인 발언 팩트체크</p>
+        <p class="text-xs mt-2 text-gray-500">최종 업데이트: 2025년 4월 21일</p>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 정당 필터 기능
+            const partyTabs = document.querySelectorAll('.party-tab');
+            const falseHoodCards = document.querySelectorAll('.falsehood-card');
+            const noResults = document.querySelector('.no-results');
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            
+            // 더 보기 버튼 상태 관리
+            let currentPage = 1;
+            const cardsPerPage = 5;
+            let filteredCards = [...falseHoodCards];
+            let activeParty = '전체';
+            
+            // 초기 로딩 시 첫 페이지만 표시
+            initializeCardDisplay();
+            
+            // 정당 필터 클릭 이벤트
+            partyTabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // 이미 활성화된 탭을 다시 클릭한 경우 무시
+                    if (this.classList.contains('active')) return;
+                    
+                    // 활성화 상태 변경
+                    partyTabs.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // 선택된 정당
+                    activeParty = this.getAttribute('data-party');
+                    
+                    // 필터링 및 표시
+                    filterAndDisplayCards();
+                });
+            });
+            
+            // 더보기 버튼 클릭 이벤트
+            loadMoreBtn.addEventListener('click', function() {
+                currentPage++;
+                updateCardDisplay();
+                
+                // 버튼 상태 업데이트
+                updateLoadMoreButton();
+            });
+            
+            // 초기 카드 표시 설정
+            function initializeCardDisplay() {
+                // 모든 카드 숨기기
+                falseHoodCards.forEach(card => {
+                    card.style.display = 'none';
+                });
+                
+                // 첫 페이지 카드만 표시
+                updateCardDisplay();
+                
+                // 버튼 상태 업데이트
+                updateLoadMoreButton();
+            }
+            
+            // 필터링 및 카드 표시 함수
+            function filterAndDisplayCards() {
+                currentPage = 1; // 페이지 초기화
+                
+                // 필터링된 카드 목록 생성
+                if (activeParty === '전체') {
+                    filteredCards = [...falseHoodCards];
+                } else {
+                    filteredCards = [...falseHoodCards].filter(card => 
+                        card.getAttribute('data-party') === activeParty
+                    );
+                }
+                
+                // 결과 없음 표시 여부
+                if (filteredCards.length === 0) {
+                    noResults.style.display = 'block';
+                } else {
+                    noResults.style.display = 'none';
+                }
+                
+                // 모든 카드 숨기기
+                falseHoodCards.forEach(card => {
+                    card.style.display = 'none';
+                });
+                
+                // 현재 페이지 카드 표시
+                updateCardDisplay();
+                
+                // 버튼 상태 업데이트
+                updateLoadMoreButton();
+            }
+            
+            // 카드 표시 업데이트
+            function updateCardDisplay() {
+                const startIdx = 0;
+                const endIdx = currentPage * cardsPerPage;
+                
+                for (let i = 0; i < filteredCards.length; i++) {
+                    if (i < endIdx) {
+                        filteredCards[i].style.display = 'block';
+                        
+                        // 애니메이션 효과 추가
+                        if (i >= (currentPage - 1) * cardsPerPage) {
+                            filteredCards[i].style.animation = 'fadeIn 0.5s ease-out 
+forwards';
+                        } else {
+                            filteredCards[i].style.animation = 'none';
+                        }
+                    } else {
+                        filteredCards[i].style.display = 'none';
+                    }
+                }
+            }
+            
+            // 더보기 버튼 상태 업데이트
+            function updateLoadMoreButton() {
+                const totalPages = Math.ceil(filteredCards.length / cardsPerPage);
+                
+                if (currentPage >= totalPages) {
+                    loadMoreBtn.disabled = true;
+                    loadMoreBtn.textContent = '모든 내용을 불러왔습니다';
+                } else {
+                    loadMoreBtn.disabled = false;
+                    loadMoreBtn.textContent = '더 보기';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+    <script id="html_badge_script1">
+        window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
+            
+"remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDjY7SiWoGIQv%2B6qcwfdL3s2Aj%2FnLPF%2F8rgiNyRfNaqeVbovSuZpW%2FM4jmTY8mEC7kDhwmCTsitv4lxrCEmqA0%2BL0Kd0PBlCRrkKWDYBYRc1j8gz7uohfh1dKi%2BB214xQFEwSv6WecGV7CNK0nYf%2F4yj5JCntTR9fqftBcF%2FTS093p42WmX7wgpnL8WIEOEvs%2BIUXo%2FcozY9X3%2BqXdFr3Oq3%2BBJVCa6PJ0V%2Bxj4powwt4U5pKVUEFW%2FjiYWF4ONhU7Oos75M1jsvyLV%2B82TC6BHw2D5QUNfcjVWkVeLxdrNAph5GAh%2Fwbu9Q4wpjj9NAH5A3rNh9ICI3WzCJpgiNVE2WDz%2BMkz1N3uqN2K2oUvymBX%2FwSUWeK661EvVGvBK0fWmQNG6qtT1NnlHpylzYLn8bCI7BDB%2BtqjZt27YTZFyWyFSO7pznEfsvKb0esioi%2B0cg4lZro1SWh0j45eYMOfzC89VGpv%2Fv%2FS0JsclkiqwtEUXpnjVxNtV1ElTdYWYicbQ%3D%3D";
+        window.__genspark_locale = "ko-KR";
+        window.__genspark_token = 
+"To/BnjzloZ3UfQdcSaYfDjY7SiWoGIQv+6qcwfdL3s2Aj/nLPF/8rgiNyRfNaqeVbovSuZpW/M4jmTY8mEC7kDhwmCTsitv4lxrCEmqA0+L0Kd0PBlCRrkKWDYBYRc1j8gz7uohfh1dKi+B214xQFEwSv6WecGV7CNK0nYf/4yj5JCntTR9fqftBcF/TS093p42WmX7wgpnL8WIEOEvs+IUXo/cozY9X3+qXdFr3Oq3+BJVCa6PJ0V+xj4powwt4U5pKVUEFW/jiYWF4ONhU7Oos75M1jsvyLV+82TC6BHw2D5QUNfcjVWkVeLxdrNAph5GAh/wbu9Q4wpjj9NAH5A3rNh9ICI3WzCJpgiNVE2WDz+Mkz1N3uqN2K2oUvymBX/wSUWeK661EvVGvBK0fWmQNG6qtT1NnlHpylzYLn8bCI7BDB+tqjZt27YTZFyWyFSO7pznEfsvKb0esioi+0cg4lZro1SWh0j45eYMOfzC89VGpv/v/S0JsclkiqwtEUXpnjVxNtV1ElTdYWYicbQ==";
+    </script>
+    
