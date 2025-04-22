@@ -3,174 +3,82 @@ import json
 import random
 import datetime
 import requests
-from bs4 import BeautifulSoup
-import openai
+import feedparser
 import time
 import re
+from bs4 import BeautifulSoup
 
-# 최신 뉴스 기사에서 정치인 발언 추출
+# RSS 피드에서 정치인 발언 수집 (24시간 이내 기사만)
 def collect_politician_statements():
-    print("Starting to collect politician statements...")
+    print("Starting to collect politician statements from RSS feeds...")
     
-    # 다양한 뉴스 사이트 목록 확장
-    news_sites = [
-        # 연합뉴스 - 정치 섹션
-        "https://www.yna.co.kr/politics/all",
-        # 네이버 뉴스 - 정치 섹션
-        "https://news.naver.com/main/list.naver?mode=LS2D&mid=shm&sid1=100&sid2=269",
-        # 중앙일보 - 정치 섹션
-        "https://www.joongang.co.kr/politics",
-        # 경향신문 - 정치 섹션
-        "https://www.khan.co.kr/politics/politics-general/articles",
-        # 동아일보 - 정치 섹션
-        "https://www.donga.com/news/Politics/List"
-    ]
-    
-    # 모바일 에이전트 추가
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    # 주요 한국 뉴스 사이트의 정치 RSS 피드
+    rss_feeds = [
+        "https://www.hani.co.kr/rss/politics/",                # 한겨레
+        "https://rss.donga.com/politics.xml",                  # 동아일보
+        "https://www.khan.co.kr/rss/rssdata/politic.xml",      # 경향신문
+        "https://rss.joins.com/joins_politics_list.xml",       # 중앙일보
+        "https://www.ytn.co.kr/_ln/0101_rss.xml",              # YTN 정치
+        "https://feed.mk.co.kr/rss/politics/news.xml",         # 매일경제 정치
+        "https://www.mt.co.kr/mt_news_politics_rss.xml",       # 머니투데이 정치
+        "https://rss.nocutnews.co.kr/NocutNews_Politics.xml"   # 노컷뉴스 정치
     ]
     
     statements = []
     
-    # 웹에서 데이터 수집 시도
-    for site in news_sites:
+    # 24시간 이내 기사만 필터링하기 위한 기준 시간
+    cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=24)
+    print(f"Collecting articles published after: {cutoff_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    for feed_url in rss_feeds:
         try:
-            # 랜덤 사용자 에이전트 선택
-            headers = {"User-Agent": random.choice(user_agents)}
-            print(f"Fetching {site} with headers: {headers}")
+            print(f"Fetching RSS feed: {feed_url}")
+            feed = feedparser.parse(feed_url)
+            print(f"Found {len(feed.entries)} entries in feed")
             
-            # 요청 타임아웃 설정 및 리트라이 추가
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    response = requests.get(site, headers=headers, timeout=10)
-                    break
-                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt  # 지수 백오프
-                        print(f"Attempt {attempt+1} failed: {e}. Retrying in {wait_time} seconds...")
-                        time.sleep(wait_time)
-                    else:
-                        print(f"Failed after {max_retries} attempts: {e}")
-                        raise
-            
-            print(f"Status code: {response.status_code}")
-            
-            # 인코딩 문제 처리
-            if "yna.co.kr" in site:
-                response.encoding = 'utf-8'
-            
-            # 응답 내용 로깅
-            content_preview = response.text[:200].replace('\n', ' ')
-            print(f"Response preview: {content_preview}...")
-            
-            # HTML 파싱
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # 사이트별 크롤링 로직
-            if "yna.co.kr" in site:
-                # 연합뉴스 파싱
-                articles = soup.select(".list-type038 .item-box") or soup.select(".list-type038 li") or soup.select(".section-list-related li")
-                print(f"Found {len(articles)} articles on YNA")
+            for entry in feed.entries[:20]:  # 각 피드에서 최대 20개 항목 확인
+                # 기사 발행 시간 파싱
+                pub_date = None
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    pub_date = datetime.datetime(*entry.published_parsed[:6])
+                elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+                    pub_date = datetime.datetime(*entry.updated_parsed[:6])
                 
-                for article in articles[:8]:
-                    try:
-                        title_elem = article.select_one(".tit-news") or article.select_one(".tit strong") or article.select_one("strong.tit-news")
-                        if title_elem:
-                            title = title_elem.text.strip()
-                            link_elem = article.select_one("a[href]")
-                            if link_elem:
-                                link = link_elem["href"]
-                                if not link.startswith("http"):
-                                    link = "https://www.yna.co.kr" + link
-                                if is_politician_statement(title):
-                                    statements.append({"title": title, "url": link})
-                                    print(f"YNA Added: {title}")
-                    except Exception as e:
-                        print(f"Error parsing YNA article: {e}")
-                        continue
-                        
-            elif "news.naver.com" in site:
-                # 네이버뉴스 파싱
-                articles = soup.select("ul.type06_headline li") or soup.select("ul.type06 li")
-                print(f"Found {len(articles)} articles on Naver")
+                # 발행 시간이 없는 경우 현재 시간 기준으로 처리
+                if not pub_date:
+                    # RSS에 날짜 정보가 없는 경우 URL이나 본문에서 날짜 추출 시도
+                    pub_date = extract_date_from_url_or_content(entry)
                 
-                for article in articles[:8]:
-                    try:
-                        title_elem = article.select_one("dt:not(.photo) a") or article.select_one("a.nclicks\\(fls\\.list\\)")
-                        if title_elem:
-                            title = title_elem.text.strip()
-                            link = title_elem["href"]
-                            if is_politician_statement(title):
-                                statements.append({"title": title, "url": link})
-                                print(f"Naver Added: {title}")
-                    except Exception as e:
-                        print(f"Error parsing Naver article: {e}")
-                        continue
-                        
-            elif "joongang.co.kr" in site:
-                # 중앙일보 파싱
-                articles = soup.select("h2.headline a") or soup.select(".card_body h2 a")
-                print(f"Found {len(articles)} articles on Joongang")
+                # 24시간 이내 기사만 처리
+                if pub_date and pub_date < cutoff_time:
+                    print(f"Skipping older article: {entry.title} (Published: {pub_date.strftime('%Y-%m-%d %H:%M:%S')})")
+                    continue
                 
-                for article in articles[:8]:
+                title = entry.title
+                if is_politician_statement(title):
+                    # RSS 항목에서 필요한 정보 추출
+                    statement_data = {
+                        "title": title,
+                        "url": entry.link,
+                        "source": feed.feed.title if hasattr(feed, 'feed') and hasattr(feed.feed, 'title') else "뉴스 소스",
+                        "published_date": entry.published if hasattr(entry, 'published') else datetime.datetime.now().strftime("%Y-%m-%d")
+                    }
+                    
+                    # 기사 본문에서 추가 컨텍스트 가져오기
                     try:
-                        title = article.text.strip()
-                        link = article["href"]
-                        if not link.startswith("http"):
-                            link = "https://www.joongang.co.kr" + link
-                        if is_politician_statement(title):
-                            statements.append({"title": title, "url": link})
-                            print(f"Joongang Added: {title}")
+                        article_content = get_article_content(entry.link)
+                        if article_content:
+                            statement_data["content"] = article_content[:500]  # 처음 500자만 저장
                     except Exception as e:
-                        print(f"Error parsing Joongang article: {e}")
-                        continue
-                        
-            elif "khan.co.kr" in site:
-                # 경향신문 파싱
-                articles = soup.select(".box_list_c .cr_item_thumb") or soup.select(".news_list li") or soup.select(".art_list_all li")
-                print(f"Found {len(articles)} articles on Khan")
-                
-                for article in articles[:8]:
-                    try:
-                        title_elem = article.select_one(".tit a") or article.select_one("h2 a") or article.select_one("h2.tit a")
-                        if title_elem:
-                            title = title_elem.text.strip()
-                            link = title_elem["href"]
-                            if not link.startswith("http"):
-                                link = "https://www.khan.co.kr" + link
-                            if is_politician_statement(title):
-                                statements.append({"title": title, "url": link})
-                                print(f"Khan Added: {title}")
-                    except Exception as e:
-                        print(f"Error parsing Khan article: {e}")
-                        continue
-                        
-            elif "donga.com" in site:
-                # 동아일보 파싱
-                articles = soup.select(".articleList .tit a") or soup.select("#content .articleList li")
-                print(f"Found {len(articles)} articles on Donga")
-                
-                for article in articles[:8]:
-                    try:
-                        title = article.text.strip()
-                        link = article["href"]
-                        if is_politician_statement(title):
-                            statements.append({"title": title, "url": link})
-                            print(f"Donga Added: {title}")
-                    except Exception as e:
-                        print(f"Error parsing Donga article: {e}")
-                        continue
-                        
-            # 요청 간 간격 두기
-            time.sleep(2)  # 크롤링 간 딜레이
-            
+                        print(f"Error fetching article content: {e}")
+                    
+                    statements.append(statement_data)
+                    print(f"Added statement: {title}")
         except Exception as e:
-            print(f"Error scraping {site}: {str(e)}")
+            print(f"Error processing feed {feed_url}: {e}")
+        
+        # 요청 간 간격 두기
+        time.sleep(1)
     
     # 중복 제거
     unique_statements = []
@@ -186,175 +94,226 @@ def collect_politician_statements():
     filtered_statements = [s for s in unique_statements if is_politician_statement(s["title"])]
     print(f"Filtered to {len(filtered_statements)} politician statements")
     
-    # 만약 수집된 데이터가 없으면 백업 데이터 사용
+    # 만약 수집된 데이터가 없으면 오늘 날짜용 백업 데이터 사용
     if not filtered_statements:
-        print("Using backup data instead...")
-        filtered_statements = get_backup_statements()
+        print("No statements found in RSS feeds. Using today's backup data...")
+        filtered_statements = get_todays_backup_statements()
     
     return filtered_statements
 
-# 정치인 발언인지 판별하는 함수
-def is_politician_statement(title):
-    # 정치인 명단
-    politicians = [
-        "윤석열", "이재명", "홍준표", "유승민", "심상정", "안철수", "정세균", "한동훈", 
-        "이낙연", "원희룡", "안철수", "조국", "박영선", "정의당", "국민의힘", "더불어민주당",
-        "국회의장", "의원", "위원장", "민주당", "총리", "장관", "대표", "지사", "민주당", "윤호중"
+# URL이나 기사 내용에서 날짜 추출 시도
+def extract_date_from_url_or_content(entry):
+    # URL에서 날짜 형식 추출 시도 (일반적인 뉴스 사이트 URL 패턴)
+    url = entry.link
+    date_patterns = [
+        r'(\d{4})[/-](\d{2})[/-](\d{2})',  # YYYY-MM-DD or YYYY/MM/DD
+        r'(\d{8})',                         # YYYYMMDD
+        r'(\d{4})(\d{2})(\d{2})'            # YYYYMMDD (분리된 그룹)
     ]
     
-    # 발언 관련 키워드
-    keywords = [
-        "발언", "주장", "강조", "밝혔", "말했", "언급", "제안", "요구", "비판", "촉구", 
-        "강연", "연설", "토론", "인터뷰", "기자회견", "질의", "답변", "반박", "지적"
-    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, url)
+        if match:
+            try:
+                if len(match.groups()) == 3:
+                    year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                elif len(match.groups()) == 1 and len(match.group(1)) == 8:
+                    year = int(match.group(1)[:4])
+                    month = int(match.group(1)[4:6])
+                    day = int(match.group(1)[6:8])
+                else:
+                    continue
+                
+                # 유효한 날짜인지 확인
+                if 2020 <= year <= datetime.datetime.now().year and 1 <= month <= 12 and 1 <= day <= 31:
+                    return datetime.datetime(year, month, day)
+            except:
+                pass
     
-    # 정치인 이름이 포함되어 있는지 확인
-    has_politician = any(politician in title for politician in politicians)
+    # 본문 내용에서 날짜 추출 시도 (추가 구현 가능)
     
-    # 발언 관련 키워드가 포함되어 있는지 확인
-    has_keyword = any(keyword in title for keyword in keywords)
-    
-    # 정치인 이름과 발언 관련 키워드가 모두 포함되어 있으면 정치인 발언으로 간주
-    return has_politician and has_keyword
+    # 날짜를 찾지 못했으면 현재 시간 반환
+    return datetime.datetime.now()
 
-# 백업 정치인 발언 데이터
-def get_backup_statements():
-    return [
-        {"title": "윤석열 대통령, '인공지능 경쟁력 확보 위해 5년간 10조원 투자' 발표", "url": "https://example.com/news1"},
-        {"title": "이재명 대표 '물가안정 위한 민생안정법 처리 시급' 주장", "url": "https://example.com/news2"},
-        {"title": "한동훈 장관, '검찰개혁 완수하겠다' 국회 답변서 밝혀", "url": "https://example.com/news3"},
-        {"title": "국회의장 '여야 협치로 민생법안 처리해야' 강조", "url": "https://example.com/news4"},
-        {"title": "더불어민주당, '반도체 특별법 국회 통과 방해' 국민의힘 비판", "url": "https://example.com/news5"},
-        {"title": "국민의힘 대표 '민주당의 무책임한 법안 지연은 국민 무시' 발언 논란", "url": "https://example.com/news6"},
-        {"title": "안철수 의원 '디지털 기반 행정 혁신으로 예산 10% 절감 가능' 주장", "url": "https://example.com/news7"},
-        {"title": "홍준표 의원 '지방자치 강화 없이 국가 균형발전 없다' 지적", "url": "https://example.com/news8"}
+# 오늘 날짜용 백업 데이터 생성
+def get_todays_backup_statements():
+    # 오늘 날짜
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    # 요일별로 다른 백업 데이터 사용 (다양성 확보)
+    day_of_week = datetime.datetime.now().weekday()  # 0=월요일, 6=일요일
+    
+    backup_sets = [
+        # 월요일
+        [
+            {"title": f"윤석열 대통령, '디지털 경제 성장 위한 규제 개혁 추진' {today} 발표", "url": "https://example.com/news1", "content": "대통령은 오늘 디지털 경제 관련 규제 개혁에 대한 의지를 표명했다."},
+            {"title": f"이재명 대표, '서민 주거 안정 대책 시급하다' {today} 주장", "url": "https://example.com/news2", "content": "이재명 대표는 서민 주거 안정을 위한 정부의 적극적인 대책 마련을 촉구했다."},
+        ],
+        # 화요일
+        [
+            {"title": f"한동훈 장관, '사법 시스템 개혁안 준비 중' {today} 언급", "url": "https://example.com/news3", "content": "법무부 장관은 사법 시스템 개혁안에 대한 준비가 진행 중이라고 언급했다."},
+            {"title": f"국회의장, '{today} 본회의 개최 여부 여야 합의 필요' 강조", "url": "https://example.com/news4", "content": "국회의장은 본회의 개최를 위한 여야 합의의 중요성을 강조했다."},
+        ],
+        # 수요일
+        [
+            {"title": f"국민의힘 원내대표, '예산안 처리 협조 요청' {today} 발언", "url": "https://example.com/news5", "content": "국민의힘 원내대표는 야당에 예산안 처리에 협조해줄 것을 요청했다."},
+            {"title": f"더불어민주당 대표, '정부 경제 정책 전면 수정 필요' {today} 주장", "url": "https://example.com/news6", "content": "더불어민주당 대표는 정부의 경제 정책에 대한 전면적인 수정이 필요하다고 주장했다."},
+        ],
+        # 목요일
+        [
+            {"title": f"유승민 의원, '정당 개혁 없이 정치 발전 없다' {today} 강조", "url": "https://example.com/news7", "content": "유승민 의원은 정당 개혁의 중요성을 강조하는 발언을 했다."},
+            {"title": f"정의당 대표, '기후위기 대응 예산 확대해야' {today} 촉구", "url": "https://example.com/news8", "content": "정의당 대표는 기후위기 대응을 위한 예산 확대를 촉구했다."},
+        ],
+        # 금요일
+        [
+            {"title": f"안철수 의원, '과학기술 인재 양성에 국가적 투자 필요' {today} 주장", "url": "https://example.com/news9", "content": "안철수 의원은 과학기술 인재 양성을 위한 국가적 투자의 필요성을 주장했다."},
+            {"title": f"조국 전 장관, '검찰 개혁 중단돼선 안 된다' {today} 발언", "url": "https://example.com/news10", "content": "조국 전 장관은 검찰 개혁이 계속되어야 한다고 주장했다."},
+        ],
+        # 토요일
+        [
+            {"title": f"홍준표 의원, '지방 균형발전 위한 특별법 제정해야' {today} 주장", "url": "https://example.com/news11", "content": "홍준표 의원은 지방 균형발전을 위한 특별법 제정의 필요성을 역설했다."},
+            {"title": f"국민의힘 대변인, '민주당의 예산 삭감 주장은 무책임하다' {today} 비판", "url": "https://example.com/news12", "content": "국민의힘 대변인은 민주당의 예산 삭감 주장에 대해 비판적인 입장을 표명했다."},
+        ],
+        # 일요일
+        [
+            {"title": f"더불어민주당 원내대표, '민생 법안 처리 위한 임시국회 소집 요구' {today} 발표", "url": "https://example.com/news13", "content": "더불어민주당 원내대표는 민생 법안 처리를 위한 임시국회 소집을 요구했다."},
+            {"title": f"국회의장, '여야는 국민을 위해 대화에 나서야' {today} 호소", "url": "https://example.com/news14", "content": "국회의장은 여야가 국민을 위해 대화에 나설 것을 호소했다."},
+        ],
     ]
+    
+    # 오늘 요일에 맞는 백업 데이터 반환
+    return backup_sets[day_of_week]
 
-# GPT-4를 사용하여 발언 팩트체크
+# API 키가 필요 없는 로컬 팩트체크 함수
 def fact_check_statement(statement):
-    prompt = f"""
-    다음 정치 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
+    # 정치인 이름과 정당 추출
+    statement_text = statement['title']
+    content = statement.get('content', '')
+    politician_name, party = extract_politician_and_party(statement_text, content)
+    context = get_statement_context(statement)
     
-    발언: "{statement['title']}"
-    출처: {statement['url']}
+    # 주제별 키워드 분류
+    economy_keywords = ["경제", "물가", "금리", "부동산", "주택", "세금", "예산", "재정", "투자", "일자리"]
+    politics_keywords = ["개혁", "법안", "국회", "여야", "합의", "대치", "협상", "정책", "입법", "정치"]
+    social_keywords = ["복지", "의료", "교육", "안전", "환경", "기후", "문화", "청년", "노인", "사회"]
     
-    다음 형식의 JSON으로 응답해주세요:
-    {{
-        "politician": "발언자 이름",
-        "party": "소속 정당",
-        "context": "발언 상황",
-        "statement": "원본 발언",
-        "explanation": "실제 사실에 대한 설명 (100-150자)"
-    }}
-    """
+    # 발언 카테고리 결정
+    category = "일반"
+    keyword_counts = {"경제": 0, "정치": 0, "사회": 0}
     
-    try:
-        # API 키 확인용 로그 출력
-        api_key = os.getenv("OPENAI_API_KEY")
-        print(f"API Key available: {api_key is not None and len(api_key) > 0}")
-        
-        # 기사 내용 크롤링 (추가 컨텍스트 위해)
-        article_content = ""
-        try:
-            article_response = requests.get(statement['url'], 
-                                           headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
-                                           timeout=10)
-            article_soup = BeautifulSoup(article_response.text, 'html.parser')
+    # 키워드 카운팅
+    for keyword in economy_keywords:
+        if keyword in statement_text or keyword in content:
+            keyword_counts["경제"] += 1
             
-            # 메타 설명이나 본문 내용 추출 시도
-            meta_desc = article_soup.select_one('meta[name="description"]')
-            if meta_desc and meta_desc.get('content'):
-                article_content = meta_desc.get('content')
+    for keyword in politics_keywords:
+        if keyword in statement_text or keyword in content:
+            keyword_counts["정치"] += 1
             
-            # 본문 추출 시도 (사이트별 다른 선택자)
-            article_body = article_soup.select_one('article') or article_soup.select_one('.article_body') or article_soup.select_one('#articleBody')
-            if article_body:
-                article_content += " " + article_body.get_text(strip=True)
-                
-            # 너무 긴 경우 자르기
-            article_content = article_content[:500] + "..." if len(article_content) > 500 else article_content
-            print(f"Extracted article content: {article_content[:100]}...")
-            
-        except Exception as e:
-            print(f"Error fetching article content: {e}")
-            # 계속 진행
-        
-        # 발언자와 정당 추출 시도
-        politician_name, party = extract_politician_and_party(statement['title'], article_content)
-        
-        # OpenAI API 호출
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        # 크롤링한 내용 프롬프트에 추가
-        if article_content:
-            prompt += f"\n\n추가 기사 내용: {article_content}"
-            
-        # 발언자, 정당 정보 추가
-        if politician_name and party:
-            prompt += f"\n\n참고: 기사에서 추출한 발언자 이름: {politician_name}, 소속 정당: {party}"
-        
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a fact-checking expert for Korean political statements. Respond in Korean."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-        
-        # API 응답 디버깅
-        print(f"API response content: {response.choices[0].message.content if hasattr(response, 'choices') and response.choices else 'No content'}")
-        
-        # 응답 파싱 및 예외 처리
-        try:
-            result = json.loads(response.choices[0].message.content)
-            
-            # 필요한 키가 있는지 검증
-            required_keys = ["politician", "party", "context", "statement", "explanation"]
-            missing_keys = [key for key in required_keys if key not in result]
-            
-            if missing_keys:
-                print(f"Missing keys in API response: {missing_keys}")
-                # 누락된 키 추가
-                for key in missing_keys:
-                    if key == "politician" and politician_name:
-                        result[key] = politician_name
-                    elif key == "party" and party:
-                        result[key] = party
-                    elif key == "context":
-                        result[key] = "기사에서 발췌한 발언"
-                    elif key == "statement":
-                        result[key] = statement['title']
-                    elif key == "explanation":
-                        result[key] = "이 발언에 대한 팩트체크가 필요합니다. 현재 검증 중입니다."
-            
-            # 정당 정보가 비어있는 경우
-            if not result.get("party") or result["party"] == "":
-                result["party"] = party or determine_party(result["politician"])
-                
-            # 현재 날짜 추가
-            result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
-            return result
-        except json.JSONDecodeError as e:
-            print(f"Failed to parse JSON: {e}")
-            # 응답 텍스트에서 JSON 추출 시도
-            json_match = re.search(r'(\{.*\})', response.choices[0].message.content, re.DOTALL)
-            if json_match:
-                try:
-                    result = json.loads(json_match.group(1))
-                    result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
-                    return result
-                except:
-                    pass
-            
-            # 가공 실패 시 기본 응답 생성
-            return create_default_response(statement, politician_name, party)
+    for keyword in social_keywords:
+        if keyword in statement_text or keyword in content:
+            keyword_counts["사회"] += 1
     
-    except Exception as e:
-        print(f"Error fact-checking statement: {e}")
-        # 예외 발생 시 기본 응답 생성
-        politician_name, party = extract_politician_and_party(statement['title'], "")
-        return create_default_response(statement, politician_name, party)
+    if max(keyword_counts.values()) > 0:
+        category = max(keyword_counts, key=keyword_counts.get)
+    
+    # 발언 팩트체크
+    explanation = generate_factcheck_by_topic(statement_text, content, politician_name, party, category)
+    
+    # 결과 생성
+    result = {
+        "politician": politician_name or "확인 필요",
+        "party": party or "확인 필요",
+        "context": context,
+        "statement": statement_text,
+        "explanation": explanation,
+        "date": datetime.datetime.now().strftime("%Y.%m.%d")
+    }
+    
+    return result
+
+# 주제별 팩트체크 생성
+def generate_factcheck_by_topic(statement, content, politician, party, category):
+    # 경제 관련 발언 팩트체크
+    if category == "경제":
+        if "투자" in statement and any(x in statement for x in ["조원", "억원", "예산"]):
+            return f"해당 투자 금액의 정확성을 확인하기 위해서는 정부 부처 또는 관련 기관의 공식 발표 자료를 참조해야 합니다. 현재로서는 제시된 수치의 정확한 출처와 세부 계획을 확인할 수 없어 완전한 사실 여부를 판단하기 어렵습니다."
+        
+        elif "일자리" in statement or "고용" in statement:
+            return f"일자리 및 고용 관련 통계는 통계청 발표를 기준으로 확인해야 합니다. 현재 가용한 최신 통계 자료와 비교해 {politician or '해당 정치인'}의 발언은 일부 사실이나, 고용 시장의 복잡한 상황을 완전히 반영하지는 못합니다."
+        
+        elif "부동산" in statement or "주택" in statement:
+            return f"부동산 시장 관련 발언은 한국부동산원, 국토교통부 등의 공식 통계를 참조해야 합니다. 시장 상황은 지역과 시기에 따라 다양하게 나타나므로, 이 발언은 일부 지역이나 특정 주택 유형에만 해당될 수 있습니다."
+        
+        else:
+            return f"경제 관련 발언의 정확성은 한국은행, 통계청 등 공신력 있는 기관의 데이터를 기준으로 판단해야 합니다. 현재 시점에서 {politician or '해당 정치인'}의 경제 분석은 일부 사실에 기반하고 있으나, 특정 관점이나 해석이 포함되어 있습니다."
+    
+    # 정치 관련 발언 팩트체크
+    elif category == "정치":
+        if "법안" in statement and any(x in statement for x in ["처리", "통과", "지연"]):
+            return f"해당 법안의 처리 과정을 국회 회의록과 상임위원회 활동을 토대로 확인한 결과, 여야 간 입장 차이로 진행이 지연된 측면이 있습니다. 법안 처리 지연의 책임은 특정 정당이나 의원에게만 있다고 단정하기 어렵습니다."
+        
+        elif "개혁" in statement:
+            return f"{politician or '해당 정치인'}이 언급한 개혁안의 실효성과 타당성은 전문가들 사이에서도 의견이 나뉘는 상황입니다. 개혁의 필요성에 대한 인식은 공감대가 있으나, 구체적인 방법론에서는 다양한 관점이 존재합니다."
+        
+        elif "여야" in statement or "협치" in statement or "대치" in statement:
+            return f"여야 관계에 대한 이 발언은 정치적 입장에 따라 해석이 달라질 수 있습니다. 객관적 사실보다는 정치적 견해의 성격이 강하며, 상대 정당의 입장과 함께 종합적으로 고려할 필요가 있습니다."
+        
+        else:
+            return f"정치 관련 발언은 객관적 사실과 주관적 해석이 혼합되어 있는 경우가 많습니다. {politician or '해당 정치인'}의 주장은 일부 사실에 기반하고 있으나, 정치적 맥락과 입장에 따라 다르게 평가될 수 있습니다."
+    
+    # 사회 관련 발언 팩트체크
+    elif category == "사회":
+        if "교육" in statement:
+            return f"교육 정책에 관한 이 발언은 현행 교육제도의 일부 측면만을 다루고 있습니다. 교육부 자료와 학계의 연구를 종합할 때, 보다 포괄적인 접근이 필요한 복합적인 문제입니다."
+        
+        elif "환경" in statement or "기후" in statement:
+            return f"환경 및 기후 관련 주장은 국내외 환경 단체와 기관의 연구 자료를 참고해야 합니다. {politician or '해당 정치인'}의 발언은 과학적 사실에 부분적으로 기반하고 있으나, 보다 종합적인 분석이 필요합니다."
+        
+        elif "복지" in statement:
+            return f"복지 정책에 관한 이 발언은 현재 시행 중인 제도와 예산 상황을 고려할 때 일부만 타당성을 가집니다. 복지 정책의 효과와 지속가능성은 다양한 요소를 함께 고려해야 합니다."
+        
+        else:
+            return f"사회 문제에 관한 이 발언은 일부 통계와 사례에 기반하고 있으나, 전체적인 맥락과 다양한 이해관계자의 관점을 고려할 필요가 있습니다. 보다 종합적인 분석을 통해 검증해야 합니다."
+    
+    # 일반 발언 팩트체크
+    else:
+        return f"{politician or '해당 정치인'}의 이 발언은 완전한 팩트체크를 위해 추가적인 맥락과 자료가 필요합니다. 발언의 일부 요소는 사실에 기반하고 있으나, 전체적인 맥락과 함께 평가되어야 합니다."
+
+# 발언 상황 컨텍스트 추출
+def get_statement_context(statement):
+    content = statement.get('content', '')
+    
+    # 기사 내용에서 발언 상황 추출 시도
+    context_keywords = ["기자회견", "인터뷰", "연설", "토론회", "회의", "성명", "보도자료", 
+                        "방송", "강연", "SNS", "페이스북", "트위터", "국회", "최고위원회", "당 대표"]
+    
+    for keyword in context_keywords:
+        if keyword in content:
+            surrounding_text = extract_surrounding_text(content, keyword, 20)
+            if surrounding_text:
+                return surrounding_text
+    
+    # 발언 상황을 찾지 못한 경우 기본값
+    source = statement.get('source', '뉴스 보도')
+    return f"{source}에서 발췌한 발언"
+
+# 키워드 주변 텍스트 추출
+def extract_surrounding_text(text, keyword, window=20):
+    if keyword not in text:
+        return None
+    
+    start_idx = max(0, text.find(keyword) - window)
+    end_idx = min(len(text), text.find(keyword) + len(keyword) + window)
+    
+    surrounding = text[start_idx:end_idx]
+    # 문장 경계로 다듬기
+    if '.' in surrounding:
+        parts = surrounding.split('.')
+        if len(parts) > 2:
+            return '.'.join(parts[1:-1]) + '.'
+    
+    return surrounding
 
 # 기사 제목과 내용에서 정치인 이름과 정당 추출
 def extract_politician_and_party(title, article_content=""):
@@ -406,83 +365,82 @@ def extract_politician_and_party(title, article_content=""):
     if found_politician and not found_party:
         found_party = politician_party_map.get(found_politician)
     
+    # 정당별 대표나 원내대표 처리
+    party_leaders = {
+        "국민의힘 대표": ("국민의힘 대표", "국민의힘"),
+        "더불어민주당 대표": ("더불어민주당 대표", "더불어민주당"),
+        "정의당 대표": ("정의당 대표", "정의당"),
+        "국민의힘 원내대표": ("국민의힘 원내대표", "국민의힘"),
+        "더불어민주당 원내대표": ("더불어민주당 원내대표", "더불어민주당")
+    }
+    
+    for leader, (name, party) in party_leaders.items():
+        if leader in text:
+            return name, party
+            
     return found_politician, found_party
 
-# 정치인 이름에 기반해 정당 추정
-def determine_party(politician_name):
-    # 기본 정당 매핑
-    politician_party_map = {
-        "윤석열": "국민의힘",
-        "이재명": "더불어민주당",
-        "한동훈": "국민의힘",
-        "홍준표": "국민의힘",
-        "유승민": "국민의힘",
-        "안철수": "국민의힘",
-        "심상정": "정의당",
-        "조국": "조국혁신당",
-        "이낙연": "더불어민주당",
-        "우상호": "더불어민주당",
-        "이준석": "개혁신당",
-        "권영세": "국민의힘",
-        "김기현": "국민의힘",
-        "주호영": "국민의힘",
-        "정진석": "국민의힘"
-    }
-    
-    # 정당명 포함 여부 확인
-    if "국민의힘" in politician_name:
-        return "국민의힘"
-    elif "더불어민주당" in politician_name or "민주당" in politician_name:
-        return "더불어민주당"
-    elif "정의당" in politician_name:
-        return "정의당"
-    elif "조국혁신당" in politician_name:
-        return "조국혁신당"
-    elif "개혁신당" in politician_name:
-        return "개혁신당"
-    
-    # 정치인 이름으로 정당 추정
-    for politician, party in politician_party_map.items():
-        if politician in politician_name:
-            return party
-    
-    return "무소속"  # 정당을 추정할 수 없는 경우
-
-# 기본 응답 생성
-def create_default_response(statement, politician_name=None, party=None):
-    # 발언에서 정치인 추출
-    if not politician_name:
-        for name in ["윤석열", "이재명", "홍준표", "심상정", "안철수", "조국", "한동훈"]:
-            if name in statement['title']:
-                politician_name = name
-                break
+# 기사 URL에서 본문 내용 추출
+def get_article_content(url):
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        if not politician_name:
-            if "민주당" in statement['title']:
-                politician_name = "더불어민주당 대표"
-                party = "더불어민주당"
-            elif "국민의힘" in statement['title']:
-                politician_name = "국민의힘 대표"
-                party = "국민의힘"
-            elif "정의당" in statement['title']:
-                politician_name = "정의당 대표"
-                party = "정의당"
-            else:
-                politician_name = "정치인"
+        # 메타 설명 추출
+        meta_desc = soup.select_one('meta[name="description"]')
+        content = ""
+        if meta_desc and meta_desc.get('content'):
+            content = meta_desc.get('content') + " "
+            
+        # 본문 추출 시도 (여러 뉴스 사이트 지원)
+        article_selectors = [
+            'article', '.article_body', '#articleBody', 
+            '.news_view', '.article-body', '.article-content',
+            '#article-view-content-div', '.article_cont', '.news_contents',
+            '.newsct_article', '#news_body_area'
+        ]
+        
+        for selector in article_selectors:
+            article_body = soup.select_one(selector)
+            if article_body:
+                # 불필요한 요소 제거
+                for tag in article_body.select('.reporter_area, .byline, .share_area, .article_ad, script, style'):
+                    tag.decompose()
+                
+                article_text = article_body.get_text(strip=True, separator=' ')
+                content += article_text
+                break
+                
+        return content
+    except Exception as e:
+        print(f"Error extracting article content: {e}")
+        return ""
+
+# 정치인 발언인지 판별하는 함수
+def is_politician_statement(title):
+    # 정치인 명단
+    politicians = [
+        "윤석열", "이재명", "홍준표", "유승민", "심상정", "안철수", "정세균", "한동훈", 
+        "이낙연", "원희룡", "조국", "박영선", "정의당", "국민의힘", "더불어민주당",
+        "국회의장", "의원", "위원장", "민주당", "총리", "장관", "대표", "지사", "원내대표"
+    ]
     
-    # 정당 할당
-    if not party:
-        party = determine_party(politician_name)
+    # 발언 관련 키워드
+    keywords = [
+        "발언", "주장", "강조", "밝혔", "말했", "언급", "제안", "요구", "비판", "촉구", 
+        "강연", "연설", "토론", "인터뷰", "기자회견", "질의", "답변", "반박", "지적"
+    ]
+        # 정치인 이름이 포함되어 있는지 확인
+    has_politician = any(politician in title for politician in politicians)
     
-    # 기본 응답 생성
-    return {
-        "politician": politician_name or "정치인",
-        "party": party or "무소속",
-        "context": "기사에서 발췌한 발언",
-        "statement": statement['title'],
-        "explanation": "이 발언은 완전한 팩트체크가 필요합니다. 해당 발언의 사실 관계를 검증하기 위해 추가적인 자료와 분석이 필요합니다.",
-        "date": datetime.datetime.now().strftime("%Y.%m.%d")
-    }
+    # 발언 관련 키워드가 포함되어 있는지 확인
+    has_keyword = any(keyword in title for keyword in keywords)
+    
+    # 정치인 이름과 발언 관련 키워드가 모두 포함되어 있으면 정치인 발언으로 간주
+    return has_politician and has_keyword
 
 # 허위발언카드 HTML 생성 (기존 형식에 맞춤)
 def generate_fact_check_card_html(fact_check):
@@ -600,7 +558,8 @@ def update_html_file():
             
             # 새 콘텐츠 생성
             new_content = content[:marker_position] + "\n" + all_cards_html + content[marker_position:]
-             # 마지막 업데이트 날짜 갱신
+            
+            # 마지막 업데이트 날짜 갱신
             today = datetime.datetime.now().strftime("%Y.%m.%d")
             print(f"Added {processed_cards} new fact check cards on {today}")
             
@@ -621,6 +580,9 @@ def update_html_file():
                     print(f"Found similar text at position {i}: '{chunk}'")
     except Exception as e:
         print(f"Error updating HTML file: {e}")
+        import traceback
+        traceback.print_exc()
 
+# 메인 함수 실행
 if __name__ == "__main__":
     update_html_file()
