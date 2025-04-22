@@ -433,7 +433,8 @@ def is_politician_statement(title):
         "발언", "주장", "강조", "밝혔", "말했", "언급", "제안", "요구", "비판", "촉구", 
         "강연", "연설", "토론", "인터뷰", "기자회견", "질의", "답변", "반박", "지적"
     ]
-        # 정치인 이름이 포함되어 있는지 확인
+    
+    # 정치인 이름이 포함되어 있는지 확인
     has_politician = any(politician in title for politician in politicians)
     
     # 발언 관련 키워드가 포함되어 있는지 확인
