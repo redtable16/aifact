@@ -381,10 +381,10 @@ def fact_check_statement(statement):
         "party": "소속 정당",
         "context": "발언 상황",
         "statement": "원본 발언",
-        "explanation": "실제 사실에 대한 설명 (약 100에서 150자)"
+        "explanation": "실제 사실에 대한 설명 (간결하게)"
     }}
 
-설명은 약 100에서 150자 내외로 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
+설명은 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
 """.format(
     statement_text,
     real_speaker if real_speaker else "확인 필요", 
