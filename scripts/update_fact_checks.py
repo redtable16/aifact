@@ -363,29 +363,34 @@ def fact_check_statement(statement):
     # 발언자 이름 개선
     improved_name = improve_politician_name(politician_name, party)
     
-    prompt = f"""
+    prompt = """
     다음 정치인 발언의 사실 여부를 검증해주세요. 결과는 JSON 형식으로 반환해주세요.
-    
-    발언 제목: "{statement_text}"
-    실제 발언자(추정): {real_speaker if real_speaker else "확인 필요"}
-    출처: {statement.get('url', '확인 필요')}
-    
+
+    발언 제목: "{0}"
+    실제 발언자(추정): {1}
+    출처: {2}
+
     추가 컨텍스트:
-    {content[:500] if content else '추가 정보 없음'}
-    
+    {3}
+
     먼저 발언 제목과 내용을 분석하여 누가 실제로 발언했는지 확인하고, 그 발언의 사실 관계를 객관적으로 검증해주세요.
-    
+
     다음 형식의 JSON으로 응답해주세요:
     {{
         "politician": "실제 발언자 이름",
         "party": "소속 정당",
         "context": "발언 상황",
         "statement": "원본 발언",
-        "explanation": "실제 사실에 대한 설명 (100-150자)"
+        "explanation": "실제 사실에 대한 설명 (약 100에서 150자)"
     }}
-    
-    설명은 100-150자 내외로 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
-    """
+
+설명은 약 100에서 150자 내외로 간결하게 작성해주세요. 발언의 사실 관계를 객관적으로 검증하고, 필요한 경우 맥락을 제공해주세요.
+""".format(
+    statement_text,
+    real_speaker if real_speaker else "확인 필요", 
+    statement.get('url', '확인 필요'),
+    content[:500] if content else '추가 정보 없음'
+)
     
     try:
         # API 키 확인용 로그 출력
