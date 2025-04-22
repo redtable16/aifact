@@ -226,6 +226,28 @@ def extract_date_from_url_or_content(entry):
     # 날짜를 찾지 못했으면 현재 시간 반환
     return datetime.datetime.now()
 
+# 정치인 이름 처리 개선
+def improve_politician_name(politician_name, party):
+    # 발언자가 불명확할 경우 정당 정보 활용
+    if not politician_name or politician_name == "확인 필요":
+        if party and party != "확인 필요":
+            # 정당명 + 관계자 형태로 반환
+            if "민주당" in party:
+                return "더불어민주당 관계자"
+            elif "국민의힘" in party:
+                return "국민의힘 관계자"
+            elif "정의당" in party:
+                return "정의당 관계자"
+            elif "개혁신당" in party:
+                return "개혁신당 관계자"
+            elif "조국혁신당" in party:
+                return "조국혁신당 관계자"
+            else:
+                return f"{party} 관계자"
+        else:
+            return "정치권 관계자"
+    return politician_name
+
 # API 키가 필요 없는 로컬 팩트체크 함수
 def fact_check_statement(statement):
     # 정치인 이름과 정당 추출
@@ -261,13 +283,16 @@ def fact_check_statement(statement):
     if max(keyword_counts.values()) > 0:
         category = max(keyword_counts, key=keyword_counts.get)
     
-    # 발언 팩트체크 - 카테고리에 따라 다른 설명 생성
+    # 발언 팩트체크
     explanation = generate_factcheck_by_category(statement_text, content, politician_name, party, category)
+    
+    # 발언자 이름 개선
+    improved_name = improve_politician_name(politician_name, party)
     
     # 결과 생성
     result = {
-        "politician": politician_name or "확인 필요",
-        "party": party or "확인 필요",
+        "politician": improved_name,
+        "party": party or "무소속",
         "context": context,
         "statement": statement_text,
         "explanation": explanation,
@@ -314,18 +339,25 @@ def get_statement_context(statement):
     content = statement.get('content', '')
     source = statement.get('source', '뉴스 보도')
     
+    # SNS 관련 출처 통일
+    if any(term in content.lower() for term in ["sns", "페이스북", "트위터", "인스타그램", "공유하기", "퍼가기"]):
+        return "SNS 발언"
+    
     # 기사 내용에서 발언 상황 추출 시도
     context_keywords = ["기자회견", "인터뷰", "연설", "토론회", "회의", "성명", "보도자료", 
-                        "방송", "강연", "SNS", "페이스북", "트위터", "국회", "최고위원회", "당 대표"]
+                        "방송", "강연", "국회", "최고위원회", "당 대표"]
     
     for keyword in context_keywords:
         if keyword in content:
             surrounding_text = extract_surrounding_text(content, keyword, 20)
             if surrounding_text:
+                # 너무 긴 출처 정리
+                if len(surrounding_text) > 30:
+                    return keyword
                 return surrounding_text
     
     # 발언 상황을 찾지 못한 경우 기본값
-    return f"{source}에서 발췌한 발언"
+    return "언론 보도"
 
 # 키워드 주변 텍스트 추출
 def extract_surrounding_text(text, keyword, window=20):
