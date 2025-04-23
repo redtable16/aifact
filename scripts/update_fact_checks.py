@@ -44,6 +44,12 @@ def get_naver_news():
         "사실 확인", "거짓 주장", "허위 발언", "오보", "팩트체크"
     ]
     
+    # 정치인 간 주장이 엇갈리는 키워드
+    controversy_keywords = [
+        "반박", "논쟁", "진실공방", "공방", "엇갈린 주장", "상반된 주장", 
+        "진실공방", "맞받아쳤다", "서로 다른 주장", "서로 다른 입장"
+    ]
+    
     all_news = []
     
     # 정치인 이름으로 검색
@@ -112,7 +118,7 @@ def get_naver_news():
             print(f"Error fetching news for keyword {keyword}: {e}")
     
     # 팩트체크 키워드로 검색 (더 정확한 주장 포착을 위해)
-    for keyword in factcheck_keywords:
+    for keyword in factcheck_keywords + controversy_keywords:
         try:
             url = f"https://openapi.naver.com/v1/search/news.json?query=정치인+{keyword}&display=20&sort=date"
             response = requests.get(url, headers=headers)
@@ -120,7 +126,7 @@ def get_naver_news():
             if response.status_code == 200:
                 result = response.json()
                 news_items = result.get("items", [])
-                print(f"Found {len(news_items)} news items for factcheck keyword {keyword}")
+                print(f"Found {len(news_items)} news items for factcheck/controversy keyword {keyword}")
                 
                 for item in news_items:
                     # 기존 목록과 중복 방지
@@ -233,7 +239,7 @@ def collect_politician_statements():
     print(f"Factcheckable statements: {len(factcheckable_statements)}")
     
     # 숫자 기반 주장을 우선하도록 정렬
-    factcheckable_statements = prioritize_numeric_statements(factcheckable_statements)
+    factcheckable_statements = prioritize_statements(factcheckable_statements)
     
     # 단계별 수집 결과 출력
     print("\nCollection Summary:")
@@ -242,13 +248,13 @@ def collect_politician_statements():
     print(f"- Factcheckable statements: {len(factcheckable_statements)}")
     
     # 단계별 필터링 적용 (가장 엄격한 것부터 시작)
-    if len(factcheckable_statements) >= 3:
+    if len(factcheckable_statements) >= 1:
         print("Using factcheckable statements.")
         return factcheckable_statements
-    elif len(politician_statements) >= 3:
+    elif len(politician_statements) >= 1:
         print("Not enough factcheckable statements. Using all politician statements.")
         return politician_statements
-    elif len(unique_statements) >= 3:
+    elif len(unique_statements) >= 1:
         print("Not enough politician statements. Using all news articles.")
         return unique_statements
     else:
@@ -308,8 +314,27 @@ def extract_factcheckable_claim(article):
     content = article.get('content', '')
     combined_text = f"제목: {title}\n\n내용: {content[:2000]}"  # 최대 2000자까지 사용
     
+    # 팩트체크 예시 추가
+    examples = """
+예시 1:
+기사 내용: "박 직무대행은 '국민의힘 대선 예비후보들의 자체 핵무장 공약으로 국민 불안이 가중되고 있다'며 '자극적인 공약으로 얻을 수 있는 것은 외교적 고립과 경제적 피해임을 모르지 않을 텐데도 눈앞의 표라는 이익에만 심취해 불안을 증폭시키고 있다'고 꼬집었습니다. 이어 '윤석열이 불러온 섣부른 핵무장론 덕분에 대한민국이 민감 국가로 분류된 사실을 잊었냐'며 '핵무장론은 우리나라가 지금까지 굳건하게 지켜온 비핵화 원칙을 깨고 국제 핵 비확산체제 NPT를 정면으로 위배하는 행위'라고 지적했습니다."
+팩트체크 가능한 주장: "윤석열의 핵무장론 때문에 대한민국이 민감 국가로 분류되었다"
+
+예시 2:
+기사 내용: "한 후보가 앞서 '특수활동비 유용 의혹'을 겨냥한 데 대해서는 '당 원내대표, 위원장이면 정치 활동 비용이 나와서 세비 절반만 집에 주던 것을 전액을 줬다는 것'이라며 '특활비는 1원도 횡령한 사실이 없다. 법무부 장관을 했다는 사람이 찾아보고 이야기해야 한다'고 반박했다."
+팩트체크 가능한 주장: "특활비는 1원도 횡령한 사실이 없다"
+
+예시 3:
+기사 내용: "한편, 박 직무대행은 '국민의힘 대선 예비후보들의 자체 핵무장 공약으로 국민 불안이 가중되고 있다'며 '자극적인 공약으로 얻을 수 있는 것은 외교적 고립과 경제적 피해임을 모르지 않을 텐데도 눈앞의 표라는 이익에만 심취해 불안을 증폭시키고 있다'고 꼬집었습니다."
+팩트체크 가능한 주장: "핵무장론은 국제 핵 비확산체제 NPT를 정면으로 위배하는 행위이다"
+
+예시 4:
+기사 내용: "명태균 의혹을 집중 제기하고 있는 민주당을 겨냥해 '후보나 좀 깨끗한 사람 내놓고 그런 주장하면 밉지는 않지 어이없는 소리들 하고 있다'며 '명태균 리스크 운운하는데 여태 몇 개월 동안 나온 게 뭐 있나'라고 말했다. 반면 한동훈 후보는 '명태균에 대한 검찰 수사에서 유의미한 증거가 나왔다'며 '홍준표 후보의 발언은 사실과 다르다'고 반박했다."
+팩트체크 가능한 주장: "명태균에 대한 검찰 수사에서 유의미한 증거가 나왔다"
+"""
+    
     # 주장 추출 프롬프트
-    prompt = f"""아래 기사에서 팩트체크 가능한 주장을 추출해주세요:
+    prompt = f"""아래 기사에서 팩트체크 가능한 주장을 추출해주세요. 이런 주장들은 객관적인 사실 검증이 가능한 내용입니다.
 
 {combined_text}
 
@@ -317,6 +342,12 @@ def extract_factcheckable_claim(article):
 1. 구체적인 수치나 통계를 포함한 주장 (예: "물가가 20% 상승했다", "실업률이 5% 감소했다")
 2. 인과관계에 대한 주장 (예: "A 정책으로 인해 B 결과가 발생했다")
 3. 역사적 사실에 대한 주장 (예: "과거에 정부는 A라는 정책을 시행했다")
+4. 현실에 대한 사실 주장 (예: "특활비는 1원도 횡령한 사실이 없다")
+5. 법적, 제도적 사실 관계 (예: "핵무장론은 NPT를 위배하는 행위이다")
+6. 정치인들 간에 주장이 엇갈리는 경우 (예: "A는 '사실이 없다'고 주장하고, B는 '증거가 있다'고 주장")
+
+팩트체크하기 좋은 주장 예시:
+{examples}
 
 다음 형식으로 응답해주세요:
 - 주장이 있다면: "주장: [구체적인 주장]"
@@ -422,16 +453,48 @@ def filter_factcheckable_statements(articles):
         # 팩트체크에 부적합한 패턴 체크
         if any(pattern in title.lower() for pattern in ["하겠다", "계획", "예정", "공약", "제안"]):
             continue
+        
+        # 확실히 팩트체크 가능한 패턴들
+        strong_factcheckable_patterns = [
+            # 주장과 반박 패턴
+            r'([가-힣]+)[은는이가]\s*"([^"]+)"\s*[라고을를]\s*주장',
+            r'([가-힣]+)[은는이가]\s*"([^"]+)"\s*[라고을를]\s*비판',
+            r'([가-힣]+)[은는이가]\s*"([^"]+)"\s*[라고을를]\s*반박',
+            r'([가-힣]+)[은는이가]\s*"([^"]+)"\s*[라고을를]\s*지적',
             
-        # 숫자 포함 여부 체크 (우선순위 높음)
-        has_numbers = bool(re.search(r'\d+\.?\d*\s*%|\d+\.?\d*\s*배|\d+\s*명|\d+\s*인|\d+\s*건', title + content))
+            # 수치 관련 패턴
+            r'\d+\.?\d*\s*%', r'\d+\.?\d*\s*배', r'\d+\s*조', r'\d+\s*억',
+            r'\d+\s*만\s*[가-힣]', r'\d+\s*건', r'\d+\s*명', r'\d+\s*인',
+            
+            # 잘못된 사실 관계 주장 패턴
+            r'사실[은는이가]\s*아니', r'사실과\s*다르', r'거짓', r'허위',
+            
+            # 인과관계 주장 패턴
+            r'([가-힣]+)[때문에으로인해]', r'([가-힣]+)[로으]로\s*인해',
+            
+            # 정치인 간 주장이 엇갈리는 패턴
+            r'([가-힣]+)[은는]\s*"([^"]+)"\s*[라고을를]\s*주장[하했].*반면\s*([가-힣]+)[은는]\s*"([^"]+)"',
+            r'([가-힣]+)[은는]\s*"([^"]+)"\s*[라고을를]\s*밝[혔히].*그러나\s*([가-힣]+)[은는]\s*"([^"]+)"',
+            r'([가-힣]+)[은는이가]\s*"([^"]+)"\s*[라고을를]\s*반박'
+        ]
+            
+        full_text = title + " " + content
+            
+        # 인용구 추출 (팩트체크 가능성 높음)
+        quotes = re.findall(r'"([^"]*)"', full_text)
+        quotes_with_factual_claims = []
         
-        # 주장 관련 키워드 체크
-        has_claim_keywords = any(keyword in (title + content) for keyword in 
-                             ["주장", "지적", "비판", "논란", "통계", "수치", "실증", "발표", "밝혔"])
+        for quote in quotes:
+            # 인용구에 사실 주장이 포함된 경우 저장
+            if any(re.search(pattern, quote) for pattern in strong_factcheckable_patterns):
+                quotes_with_factual_claims.append(quote)
+                
+            # 인용구에 수치가 포함된 경우 저장
+            if re.search(r'\d+', quote):
+                quotes_with_factual_claims.append(quote)
         
-        # 숫자가 있거나 주장 키워드가 있으면 추가 처리
-        if has_numbers or has_claim_keywords:
+        # 인용구에 팩트체크 가능한 주장이 있거나, 전체 텍스트에 팩트체크 가능한 패턴이 있는 경우
+        if quotes_with_factual_claims or any(re.search(pattern, full_text) for pattern in strong_factcheckable_patterns):
             # GPT로 주장 추출 시도
             claim = extract_factcheckable_claim(article)
             if claim:
@@ -440,19 +503,47 @@ def filter_factcheckable_statements(articles):
     
     return factcheckable
 
-# 숫자 기반 주장을 우선하도록 정렬
-def prioritize_numeric_statements(statements):
-    def has_numbers(statement):
+# 핵심 주장 우선하도록 정렬
+def prioritize_statements(statements):
+    def score_statement(statement):
+        score = 0
         title = statement.get('title', '')
         content = statement.get('content', '')
         claim = statement.get('claim', '')
         combined = title + ' ' + content + ' ' + claim
-        return bool(re.search(r'\d+', combined))
+        
+        # 숫자 포함 여부 (높은 우선순위)
+        if re.search(r'\d+', combined):
+            score += 3
+            
+        # 정치인 간 주장이 엇갈리는 경우 (높은 우선순위)
+        if re.search(r'([가-힣]+)[은는]\s*"([^"]+)"\s*[라고을를]\s*주장[하했].*반면\s*([가-힣]+)[은는]\s*"([^"]+)"', combined) or \
+           re.search(r'([가-힣]+)[은는]\s*"([^"]+)"\s*[라고을를]\s*밝[혔히].*그러나\s*([가-힣]+)[은는]\s*"([^"]+)"', combined) or \
+           re.search(r'([가-힣]+)[은는이가]\s*"([^"]+)"\s*[라고을를]\s*반박', combined):
+            score += 5
+            
+        # 핵무장, 특활비 등 논쟁적 주제 (높은 우선순위)
+        controversial_topics = ["핵무장", "특활비", "횡령", "민감 국가", "NPT", "탄핵", "계엄", "내란", "여론조사"]
+        for topic in controversial_topics:
+            if topic in combined:
+                score += 4
+                
+        # 통계, 수치 관련 키워드 (높은 우선순위)
+        stats_keywords = ["통계", "수치", "퍼센트", "%", "증가", "감소", "상승", "하락", "배"]
+        for keyword in stats_keywords:
+            if keyword in combined:
+                score += 3
+                
+        # 부정적 표현 (중간 우선순위)
+        negative_keywords = ["거짓", "허위", "사실이 아니", "잘못", "오류", "착각", "틀린", "실패"]
+        for keyword in negative_keywords:
+            if keyword in combined:
+                score += 2
+                
+        return score
     
-    numeric_statements = [s for s in statements if has_numbers(s)]
-    other_statements = [s for s in statements if not has_numbers(s)]
-    
-    return numeric_statements + other_statements
+    # 점수 기준으로 정렬
+    return sorted(statements, key=score_statement, reverse=True)
 
 # 정치인 이름과 정당 추출
 def extract_politician_and_party(title, article_content=""):
@@ -556,6 +647,23 @@ def fact_check_with_structured_output(article):
     # 발언 상황 컨텍스트 추출
     context = get_statement_context(article)
     
+    # 팩트체크 예시 추가
+    examples = """
+예시 팩트체크 결과:
+
+주장: "윤석열의 핵무장론 때문에 대한민국이 민감 국가로 분류되었다"
+검증 결과: 일부 사실
+검증 설명: 미국 에너지부는 2022년 12월 한국을 '민감국가' 목록에 추가했으나, 이는 윤석열 대통령의 핵무장론 발언 이전의 결정이었습니다. 다만, 당시 한국의 핵무장 관련 여론이 증가하고 있었고, 일부 정치권에서도 핵무장 논의가 있었던 것은 사실입니다. 따라서 윤석열의 발언이 직접적 원인이라기보다는, 한국 내 핵무장 논의가 미국의 결정에 일부 영향을 미쳤을 가능성은 있습니다.
+
+주장: "특활비는 1원도 횡령한 사실이 없다"
+검증 결과: 확인 불가
+검증 설명: 특수활동비(특활비) 사용 내역은 그 특성상 비공개로 관리되며, 현재까지 공식적인 수사나 감사를 통해 특활비 횡령 여부가 확정된 바 없습니다. 따라서 "1원도 횡령한 사실이 없다"는 주장을 객관적으로 검증할 수 있는 증거가 부족합니다.
+
+주장: "핵무장론은 국제 핵 비확산체제 NPT를 정면으로 위배하는 행위이다"
+검증 결과: 사실
+검증 설명: 한국은 1975년 핵확산금지조약(NPT)에 가입한 비핵국가로, 조약 제2조에 따라 핵무기를 제조하거나 획득하지 않을 의무가 있습니다. 따라서 핵무장을 추진할 경우 이는 NPT 조약을 명백히 위반하는 행위입니다. 국제원자력기구(IAEA)와 유엔 안전보장이사회도 NPT 위반국에 대해 제재를 부과할 수 있습니다.
+"""
+    
     # 팩트체크 프롬프트
     prompt = f"""다음 주장의 사실 여부를 객관적으로 검증해주세요:
 
@@ -578,6 +686,10 @@ def fact_check_with_structured_output(article):
    - 주장이 참조한 통계나 사실의 실제 수치
    - 주장의 정확성이나 오류를 보여주는 구체적 증거
    - 가능한 경우, 출처나 증거자료 언급
+
+3. 응답은 항상 한국어로 작성하세요.
+
+{examples}
 
 아래 JSON 형식으로만 응답해주세요:
 {{
@@ -706,9 +818,11 @@ def validate_factcheck_quality(factcheck_result):
     if len(explanation) < 50:
         return False
         
-    # 구체적 증거나 숫자가 포함되어 있는지 확인
+    # 구체적 증거나 숫자, 출처 등이 포함되어 있는지 확인
     has_evidence = bool(re.search(r'\d+\.?\d*\s*%|\d+\.?\d*\s*배|\d+\s*명|\d+\s*건', explanation))
-    if not has_evidence:
+    has_source = bool(re.search(r'따르면|의하면|발표|자료|통계|보고서|연구', explanation))
+    
+    if not (has_evidence or has_source):
         return False
         
     return True
@@ -905,8 +1019,8 @@ def update_html_file():
         # 중복 방지를 위한 임시 저장소
         processed_statements = set()
         
-        # 스크립트가 최소 3개 또는 가능한 최대 카드를 생성하도록 보장
-        target_cards = 3  # 목표 카드 수
+        # 스크립트가 최소 1개 또는 가능한 최대 카드를 생성하도록 보장
+        target_cards = 1  # 목표 카드 수 (1개로 변경)
         max_attempts = 20  # 최대 시도 횟수 (충분한 카드를 얻기 위해)
         
         # 랜덤으로 발언을 선택하여 팩트체크
