@@ -6,7 +6,7 @@ import requests
 import feedparser
 import time
 import re
-import concurrent.futures
+import traceback
 from bs4 import BeautifulSoup
 import openai
 
@@ -14,13 +14,14 @@ import openai
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+FORCE_UPDATE = os.getenv("FORCE_UPDATE", "false").lower() == "true"  # 강제 업데이트 옵션
 
 # 임시 파일 경로
 TEMP_FILE = 'temp_results.json'
 SEARCH_CACHE_FILE = 'search_cache.json'
 
-# 실행 시간 제한 설정 (15분)
-MAX_RUNTIME_SECONDS = 15 * 60
+# 실행 시간 제한 설정 (18분)
+MAX_RUNTIME_SECONDS = 18 * 60
 start_time = time.time()
 
 # OpenAI 클라이언트 설정
@@ -83,27 +84,30 @@ def get_naver_news():
         "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
     }
     
-    # 핵심 정치인 이름만 사용 (효율성 향상)
+    # 정치인 이름 목록
     politician_names = [
-        "윤석열", "이재명", "홍준표", "한동훈", "조국"
+        "윤석열", "이재명", "홍준표", "한동훈", "조국",
+        "이낙연", "우상호", "이준석", "나경원", "박지현"
     ]
     
-    # 핵심 정치 관련 키워드만 사용 (효율성 향상)
+    # 정치 관련 키워드
     politics_keywords = [
-        "정치인 발언", "정치인 주장", "정치인 통계", "팩트체크"
+        "정치인 발언", "정치인 주장", "정치인 통계", "팩트체크", 
+        "정치 논란", "정치 공방", "정치 비판"
     ]
     
     all_news = []
     
-    # 정치인 이름으로 검색 (출력 개수 제한)
+    # 정치인 이름으로 검색
     for name in politician_names:
         try:
-            url = f"https://openapi.naver.com/v1/search/news.json?query={name}+발언&display=10&sort=date"
+            url = f"https://openapi.naver.com/v1/search/news.json?query={name}+발언&display=15&sort=date"
             response = requests.get(url, headers=headers)
             
             if response.status_code == 200:
                 result = response.json()
                 news_items = result.get("items", [])
+                print_progress(f"Found {len(news_items)} news items for {name}")
                 
                 for item in news_items:
                     # 중복 방지
@@ -134,21 +138,22 @@ def get_naver_news():
             else:
                 print_progress(f"Failed to fetch news for {name}: {response.status_code}")
                 
-            # API 호출 간격 감소
+            # API 호출 간격
             time.sleep(0.1)
             
         except Exception as e:
             print_progress(f"Error fetching news for {name}: {e}")
     
-    # 정치 키워드로 검색 (출력 개수 제한)
+    # 정치 키워드로 검색
     for keyword in politics_keywords:
         try:
-            url = f"https://openapi.naver.com/v1/search/news.json?query=정치인+{keyword}&display=5&sort=date"
+            url = f"https://openapi.naver.com/v1/search/news.json?query=정치인+{keyword}&display=10&sort=date"
             response = requests.get(url, headers=headers)
             
             if response.status_code == 200:
                 result = response.json()
                 news_items = result.get("items", [])
+                print_progress(f"Found {len(news_items)} news items for keyword {keyword}")
                 
                 for item in news_items:
                     # 중복 방지
@@ -176,7 +181,7 @@ def get_naver_news():
             else:
                 print_progress(f"Failed to fetch news for keyword {keyword}: {response.status_code}")
                 
-            # API 호출 간격 감소
+            # API 호출 간격
             time.sleep(0.1)
             
         except Exception as e:
@@ -189,7 +194,7 @@ def get_naver_news():
 def collect_rss_news():
     print_progress("Collecting news from RSS feeds...")
     
-    # 주요 한국 뉴스 사이트의 정치 RSS 피드 (수 제한)
+    # 주요 한국 뉴스 사이트의 정치 RSS 피드
     rss_feeds = [
         "https://www.hani.co.kr/rss/politics/",                # 한겨레
         "https://rss.donga.com/politics.xml",                  # 동아일보
@@ -401,11 +406,13 @@ def extract_factcheckable_claim_using_gpt(article):
     url = article.get('url', '')
     
     # 내용이 부족하면 전체 기사 가져오기
-    if len(content) < 200:
+    if len(content) < 300:
         try:
+            print_progress(f"Article content is short, getting full content from: {url}")
             full_content = get_full_article_content(url)
             if full_content and len(full_content) > len(content):
                 content = full_content
+                print_progress(f"Retrieved full content: {len(content)} characters")
         except Exception as e:
             print_progress(f"Error getting full content: {e}")
     
@@ -421,12 +428,14 @@ def extract_factcheckable_claim_using_gpt(article):
 
 팩트체크할 만한 발언은 다음과 같은 특성을 가집니다:
 1. 구체적인 수치나 통계를 포함한 주장
-2. 과거 사실에 대한 명확한 주장
-3. 현재 상황에 대한 검증 가능한 주장
+2. 과거 사실에 대한 주장
+3. 현재 상황에 대한 주장
 4. 인과관계에 대한 주장
-5. 정치인들 간에 상반된 주장이 있는 경우
+5. 정치인들 간에 상반된 주장
+6. 정치적으로 중요하거나 논란이 될 수 있는 주장
 
-개인 의견, 미래 계획, 가정은 팩트체크 대상이 아닙니다.
+폭넓게 생각하여 팩트체크 가능성이 있는 발언을 찾아주세요.
+발언을 찾지 못하면 "has_factcheckable_claim": false로 설정하세요.
 
 다음 JSON 형식으로만 응답해주세요:
 {{
@@ -437,8 +446,6 @@ def extract_factcheckable_claim_using_gpt(article):
     "statement": "발언 내용",
     "context": "발언 상황/맥락"
 }}
-
-발언이 없거나 팩트체크하기에 적합하지 않으면 has_factcheckable_claim을 false로 설정하세요.
 """
     
     try:
@@ -450,10 +457,11 @@ def extract_factcheckable_claim_using_gpt(article):
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2,
-            max_tokens=500  # 토큰 제한
+            max_tokens=600  # 토큰 제한 완화
         )
         
         response_text = response.choices[0].message.content.strip()
+        print_progress(f"GPT response for claim extraction: {response_text[:100]}...")
         
         # JSON 추출
         json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
@@ -464,12 +472,15 @@ def extract_factcheckable_claim_using_gpt(article):
                 print_progress(f"Found claim by {result.get('speaker')}: {result.get('statement')[:50]}...")
                 return result
             else:
+                print_progress("No factcheckable claim found in this article")
                 return None
         else:
+            print_progress("Failed to extract JSON from GPT response")
             return None
             
     except Exception as e:
         print_progress(f"Error extracting claim: {e}")
+        traceback.print_exc()
         return None
 
 # 웹 검색을 통한 추가 정보 수집 (2단계-1)
@@ -584,6 +595,8 @@ def verify_claim_with_additional_info(claim_info, additional_info):
     speaker_position = claim_info.get("speaker_position", "")
     party = claim_info.get("party", "")
     
+    print_progress(f"Verifying claim: '{statement[:50]}...' by {speaker}")
+    
     # 추가 정보를 텍스트로 변환
     additional_info_text = ""
     for idx, info in enumerate(additional_info, 1):
@@ -592,6 +605,9 @@ def verify_claim_with_additional_info(claim_info, additional_info):
     # 추가 정보가 없는 경우
     if not additional_info_text:
         additional_info_text = "추가 정보가 없습니다. 기본 정보만으로 판단해주세요."
+        print_progress("No additional information found for verification")
+    else:
+        print_progress(f"Found {len(additional_info)} additional information sources")
     
     prompt = f"""다음 정치인의 발언을 추가 정보를 바탕으로 팩트체크해주세요:
 
@@ -624,6 +640,7 @@ def verify_claim_with_additional_info(claim_info, additional_info):
     
     try:
         # GPT-4 사용 (팩트체크 정확도를 위해)
+        print_progress("Sending verification request to GPT-4...")
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
@@ -635,6 +652,7 @@ def verify_claim_with_additional_info(claim_info, additional_info):
         )
         
         response_text = response.choices[0].message.content.strip()
+        print_progress(f"Received verification response: {response_text[:100]}...")
         
         # JSON 추출
         json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
@@ -645,6 +663,7 @@ def verify_claim_with_additional_info(claim_info, additional_info):
             result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
             result["context"] = context
             
+            print_progress(f"Verification result: {result.get('verification_result', 'unknown')}")
             return result
         else:
             print_progress("Failed to extract JSON from verification response")
@@ -652,6 +671,7 @@ def verify_claim_with_additional_info(claim_info, additional_info):
             
     except Exception as e:
         print_progress(f"Error in verification: {e}")
+        traceback.print_exc()
         return None
 
 # 2단계 팩트체크 수행 - 통합 함수
@@ -659,12 +679,17 @@ def two_stage_factcheck(article):
     """2단계 팩트체크 수행 - 발언 추출 후 검증"""
     
     # 1단계: 발언 추출
+    print_progress(f"Extracting claim from article: {article.get('title', '')[:50]}...")
     claim_info = extract_factcheckable_claim_using_gpt(article)
     
     if not claim_info:
+        print_progress("No factcheckable claim found in this article")
         return None  # 팩트체크할 발언 없음
     
+    print_progress(f"Found claim: {claim_info.get('statement', '')[:50]}... by {claim_info.get('speaker', '')}")
+    
     # 2단계: 추가 정보 수집 및 검증
+    print_progress("Collecting additional information for verification...")
     speaker = claim_info.get("speaker", "")
     statement = claim_info.get("statement", "")
     
@@ -680,10 +705,12 @@ def two_stage_factcheck(article):
     for query in search_queries:
         try:
             # 웹 검색 수행
+            print_progress(f"Searching with query: {query}")
             search_results = web_search_for_factcheck(query)
             
             # 관련 있는 정보만 필터링
             relevant_results = filter_relevant_results(search_results, statement)
+            print_progress(f"Found {len(relevant_results)} relevant results")
             
             additional_info.extend(relevant_results)
             
@@ -695,9 +722,93 @@ def two_stage_factcheck(article):
             print_progress(f"Error searching for additional info: {e}")
     
     # 추가 정보를 포함하여 팩트체크 수행
+    print_progress("Performing factcheck with additional information...")
     factcheck_result = verify_claim_with_additional_info(claim_info, additional_info)
     
+    if factcheck_result:
+        print_progress(f"Factcheck completed: {factcheck_result.get('verification_result', '')}")
+    else:
+        print_progress("Factcheck failed to produce a result")
+        
     return factcheck_result
+
+# Fallback 팩트체크 - 기사 내용 전체를 GPT에게 전달
+def fallback_direct_factcheck(article):
+    """백업 팩트체크 전략: 기사 내용 전체를 GPT에게 전달"""
+    print_progress("Using fallback direct factcheck approach...")
+    
+    title = article.get('title', '')
+    content = article.get('content', '')
+    url = article.get('url', '')
+    
+    # 내용이 부족하면 전체 기사 가져오기
+    if len(content) < 300:
+        try:
+            print_progress(f"Article content is short, getting full content from: {url}")
+            full_content = get_full_article_content(url)
+            if full_content and len(full_content) > len(content):
+                content = full_content
+                print_progress(f"Retrieved full content: {len(content)} characters")
+        except Exception as e:
+            print_progress(f"Error getting full content: {e}")
+    
+    if len(content) > 1500:
+        content = content[:1500] + "..."
+    
+    prompt = f"""이 기사를 바탕으로 가능한 팩트체크를 수행해주세요:
+
+기사 제목: {title}
+기사 내용: {content}
+기사 URL: {url}
+
+이 기사에 관련된 정치인의 주장이나 논쟁점을 식별하고, 이를 검증해주세요.
+직접적인 인용문이 없더라도, 기사에서 언급된 주요 사실 주장을 팩트체크해주세요.
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "speaker": "관련 정치인 이름",
+    "speaker_position": "정치인의 직위",
+    "party": "소속 정당",
+    "statement": "검증할 내용/주장",
+    "context": "기사 맥락",
+    "verification_result": "사실|대체로 사실|일부 사실|사실 아님|확인 불가",
+    "explanation": "검증 결과에 대한 상세한 설명",
+    "sources": ["참고한 출처"]
+}}
+"""
+    
+    try:
+        print_progress("Sending fallback request to GPT-4...")
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "당신은 최고의 팩트체크 전문가입니다. 기사에서 검증 가능한 내용을 식별하고 이를 객관적으로 검증하세요."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        print_progress(f"Received fallback response: {response_text[:100]}...")
+        
+        # JSON 추출
+        json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group(1))
+            
+            # 날짜 추가
+            result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
+            
+            print_progress(f"Fallback verification result: {result.get('verification_result', 'unknown')}")
+            return result
+        else:
+            print_progress("Failed to extract JSON from fallback response")
+            return None
+            
+    except Exception as e:
+        print_progress(f"Error in fallback factcheck: {e}")
+        traceback.print_exc()
+        return None
 
 # 팩트체크 결과 품질 검증
 def validate_factcheck_quality(factcheck_result):
@@ -706,17 +817,21 @@ def validate_factcheck_quality(factcheck_result):
     # 필수 필드 확인
     required_fields = ["speaker", "statement", "verification_result", "explanation"]
     if not all(field in factcheck_result for field in required_fields):
+        print_progress("Missing required fields in factcheck result")
         return False
     
-    # 검증 결과가 확인 불가인 경우 낮은 품질로 간주
-    if factcheck_result.get("verification_result") == "확인 불가":
+    # 검증 결과가 확인 불가인 경우 낮은 품질로 간주 (FORCE_UPDATE가 켜져 있으면 허용)
+    if factcheck_result.get("verification_result") == "확인 불가" and not FORCE_UPDATE:
+        print_progress("Factcheck result is 'unverifiable' and FORCE_UPDATE is not enabled")
         return False
     
     # 설명이 너무 짧은 경우 낮은 품질로 간주
     explanation = factcheck_result.get("explanation", "")
     if len(explanation) < 50:
+        print_progress(f"Explanation is too short: {len(explanation)} characters")
         return False
     
+    print_progress("Factcheck result passed quality validation")
     return True
 
 # 팩트체크 카드 HTML 생성
@@ -951,12 +1066,29 @@ def update_html_file():
         factcheck_results = []
         
         # 효율적 팩트체크를 위해 기사 수 제한
-        max_articles_to_process = 10
+        max_articles_to_process = 15
         
-        # 처리할 기사 랜덤 선택 (다양성 확보)
-        articles_to_process = random.sample(statements, min(max_articles_to_process, len(statements)))
+        # 처리할 기사 선택적 확장 및 임의 선택
+        articles_to_process = []
+        selected_articles = random.sample(statements, min(max_articles_to_process, len(statements)))
+        
+        for article in selected_articles:
+            try:
+                # 내용이 짧으면 전체 기사 내용 가져오기
+                if len(article.get('content', '')) < 300:
+                    url = article.get('url', '')
+                    full_content = get_full_article_content(url)
+                    if full_content:
+                        article['content'] = full_content
+                articles_to_process.append(article)
+            except Exception as e:
+                print_progress(f"Error expanding article content: {e}")
+                articles_to_process.append(article)  # 원래 내용 그대로 추가
         
         # 각 기사에 대해 2단계 팩트체크 수행
+        attempts = 0
+        force_process = FORCE_UPDATE  # 강제 처리 옵션
+        
         for article in articles_to_process:
             # 시간 제한 체크
             elapsed_time = time.time() - start_time
@@ -970,9 +1102,17 @@ def update_html_file():
                 continue
             
             print_progress(f"Processing article: {article.get('title', '')[:50]}...")
+            attempts += 1
             
             # 2단계 팩트체크 수행
             factcheck_result = two_stage_factcheck(article)
+            
+            # 팩트체크 실패 시 백업 전략 시도
+            if not factcheck_result and (force_process or attempts >= len(articles_to_process) / 2):
+                print_progress("No factcheck result found, using fallback approach...")
+                # 기사를 직접 GPT에게 전달하여 팩트체크 시도
+                factcheck_result = fallback_direct_factcheck(article)
+                force_process = False  # 한 번만 강제 처리
             
             # 결과 처리
             if factcheck_result:
@@ -1036,7 +1176,6 @@ def update_html_file():
         
     except Exception as e:
         print_progress(f"Error updating HTML file: {e}")
-        import traceback
         traceback.print_exc()
     finally:
         # 실행 시간 출력
@@ -1054,5 +1193,4 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"Error in main execution: {e}")
-        import traceback
         traceback.print_exc()
