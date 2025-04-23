@@ -1,3 +1,4 @@
+# .github/workflows/update-fact-checks.yml
 name: Daily Fact Check Update
 
 on:
@@ -8,6 +9,7 @@ on:
 jobs:
   update-fact-checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # 타임아웃 증가 (15→20)
     
     steps:
     - name: Checkout repository
@@ -24,7 +26,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests beautifulsoup4 newspaper3k openai feedparser
+        pip install requests beautifulsoup4 openai feedparser
     
     - name: Update fact checks
       run: python scripts/update_fact_checks.py
@@ -32,6 +34,7 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
         NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+        FORCE_UPDATE: "true"  # 강제 업데이트 환경 변수 추가
     
     - name: Configure Git
       run: |
