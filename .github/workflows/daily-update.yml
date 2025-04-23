@@ -9,7 +9,7 @@ on:
 jobs:
   update-fact-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # 타임아웃 증가 (15→20)
+    timeout-minutes: 20  # 타임아웃 증가 (20분)
     
     steps:
     - name: Checkout repository
