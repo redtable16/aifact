@@ -17,6 +17,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # 임시 파일 경로
 TEMP_FILE = 'temp_results.json'
+SEARCH_CACHE_FILE = 'search_cache.json'
 
 # 실행 시간 제한 설정 (15분)
 MAX_RUNTIME_SECONDS = 15 * 60
@@ -28,21 +29,53 @@ client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # 블랙리스트 키워드 - 정치 관련 뉴스가 아닌 내용 필터링
 BLACKLIST_KEYWORDS = [
-    "오늘 날씨", "코로나19", "확진자", "날씨", "미세먼지", "교통상황",
-    "주식시장", "프리뷰", "스포츠", "야구", "축구", "농구", "연예",
-    "드라마", "예능", "신곡", "음원", "임신", "결혼", "이혼"
+    "날씨", "코로나", "스포츠", "연예", "드라마", "영화", "공연", 
+    "예능", "신곡", "음원", "임신", "결혼", "이혼", "사고", "사망"
 ]
+
+# 검색 결과 캐시
+search_cache = {}
 
 # 중복 방지를 위한 세트
 processed_urls = set()
 processed_titles = set()
 
-# 네이버 뉴스 API를 사용하여 정치 뉴스 가져오기 (최적화)
+# 진행 상황 출력 함수
+def print_progress(message):
+    """진행 상황을 시간과 함께 출력"""
+    elapsed = time.time() - start_time
+    print(f"[{elapsed:.1f}s] {message}")
+
+# 초기 설정 함수
+def initialize():
+    """초기 설정 및 캐시 로드"""
+    global search_cache
+    try:
+        # 검색 캐시 로드
+        if os.path.exists(SEARCH_CACHE_FILE):
+            with open(SEARCH_CACHE_FILE, 'r', encoding='utf-8') as f:
+                search_cache = json.load(f)
+            print_progress(f"Loaded {len(search_cache)} cached search results")
+    except Exception as e:
+        print_progress(f"Error loading cache: {e}")
+        search_cache = {}
+
+# 캐시 저장 함수
+def save_cache():
+    """검색 캐시 저장"""
+    try:
+        with open(SEARCH_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(search_cache, f, ensure_ascii=False)
+        print_progress(f"Saved {len(search_cache)} search results to cache")
+    except Exception as e:
+        print_progress(f"Error saving cache: {e}")
+
+# 네이버 뉴스 API를 사용하여 정치 뉴스 가져오기
 def get_naver_news():
-    print("Fetching news from Naver News API...")
+    print_progress("Fetching news from Naver News API...")
     
     if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
-        print("Naver API credentials not found. Skipping Naver News API.")
+        print_progress("Naver API credentials not found. Skipping Naver News API.")
         return []
     
     headers = {
@@ -50,48 +83,35 @@ def get_naver_news():
         "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
     }
     
-    # 핵심 정치인 이름만 사용 (최적화)
+    # 핵심 정치인 이름만 사용 (효율성 향상)
     politician_names = [
         "윤석열", "이재명", "홍준표", "한동훈", "조국"
     ]
     
-    # 핵심 정치 관련 키워드만 사용 (최적화)
+    # 핵심 정치 관련 키워드만 사용 (효율성 향상)
     politics_keywords = [
-        "정치인 발언", "정치인 주장", "정치인 통계", "정치인 비판", "거짓말"
-    ]
-    
-    # 팩트체크에 적합한 핵심 키워드만 사용 (최적화)
-    factcheck_keywords = [
-        "퍼센트", "증가율", "감소율", "사실 확인", "팩트체크"
-    ]
-    
-    # 정치인 간 주장이 엇갈리는 핵심 키워드 (최적화)
-    controversy_keywords = [
-        "반박", "논쟁", "진실공방", "공방", "엇갈린 주장"
+        "정치인 발언", "정치인 주장", "정치인 통계", "팩트체크"
     ]
     
     all_news = []
     
-    # 정치인 이름으로 검색 (출력 개수 축소)
+    # 정치인 이름으로 검색 (출력 개수 제한)
     for name in politician_names:
         try:
-            # 기사 수 감소 (50→20)
-            url = f"https://openapi.naver.com/v1/search/news.json?query={name}+발언&display=20&sort=date"
+            url = f"https://openapi.naver.com/v1/search/news.json?query={name}+발언&display=10&sort=date"
             response = requests.get(url, headers=headers)
             
             if response.status_code == 200:
                 result = response.json()
                 news_items = result.get("items", [])
-                print(f"Found {len(news_items)} news items for {name}")
                 
                 for item in news_items:
-                    # 이미 처리된 URL인지 확인 (중복 방지)
+                    # 중복 방지
                     if item['link'] in processed_urls:
                         continue
                         
                     # HTML 태그 제거
                     title = re.sub('<[^<]+?>', '', item['title'])
-                    # 이미 처리된 제목인지 확인 (중복 방지)
                     if title in processed_titles:
                         continue
                         
@@ -112,26 +132,23 @@ def get_naver_news():
                     processed_urls.add(item['link'])
                     processed_titles.add(title)
             else:
-                print(f"Failed to fetch news for {name}: {response.status_code}")
+                print_progress(f"Failed to fetch news for {name}: {response.status_code}")
                 
-            # API 호출 간격 감소 (0.2→0.1초)
+            # API 호출 간격 감소
             time.sleep(0.1)
             
         except Exception as e:
-            print(f"Error fetching news for {name}: {e}")
+            print_progress(f"Error fetching news for {name}: {e}")
     
-    # 정치/논쟁 키워드로 검색 (통합 및 축소)
-    combined_keywords = politics_keywords + factcheck_keywords + controversy_keywords
-    for keyword in combined_keywords[:10]:  # 상위 10개 키워드만 사용
+    # 정치 키워드로 검색 (출력 개수 제한)
+    for keyword in politics_keywords:
         try:
-            # 기사 수 감소 (20→10)
-            url = f"https://openapi.naver.com/v1/search/news.json?query=정치인+{keyword}&display=10&sort=date"
+            url = f"https://openapi.naver.com/v1/search/news.json?query=정치인+{keyword}&display=5&sort=date"
             response = requests.get(url, headers=headers)
             
             if response.status_code == 200:
                 result = response.json()
                 news_items = result.get("items", [])
-                print(f"Found {len(news_items)} news items for keyword {keyword}")
                 
                 for item in news_items:
                     # 중복 방지
@@ -157,22 +174,22 @@ def get_naver_news():
                     processed_urls.add(item['link'])
                     processed_titles.add(title)
             else:
-                print(f"Failed to fetch news for keyword {keyword}: {response.status_code}")
+                print_progress(f"Failed to fetch news for keyword {keyword}: {response.status_code}")
                 
             # API 호출 간격 감소
             time.sleep(0.1)
             
         except Exception as e:
-            print(f"Error fetching news for keyword {keyword}: {e}")
+            print_progress(f"Error fetching news for keyword {keyword}: {e}")
     
-    print(f"Total news items fetched from Naver: {len(all_news)}")
+    print_progress(f"Total news items fetched from Naver: {len(all_news)}")
     return all_news
 
-# RSS 피드에서 뉴스 수집 (최적화)
+# RSS 피드에서 뉴스 수집
 def collect_rss_news():
-    print("Collecting news from RSS feeds...")
+    print_progress("Collecting news from RSS feeds...")
     
-    # 주요 한국 뉴스 사이트의 정치 RSS 피드 (수 축소)
+    # 주요 한국 뉴스 사이트의 정치 RSS 피드 (수 제한)
     rss_feeds = [
         "https://www.hani.co.kr/rss/politics/",                # 한겨레
         "https://rss.donga.com/politics.xml",                  # 동아일보
@@ -187,9 +204,9 @@ def collect_rss_news():
     for feed_url in rss_feeds:
         try:
             feed = feedparser.parse(feed_url)
-            print(f"Found {len(feed.entries)} entries in feed: {feed_url}")
+            print_progress(f"Found {len(feed.entries)} entries in feed: {feed_url}")
             
-            # 항목 수 축소 (100→20)
+            # 항목 수 제한 (20개)
             for entry in feed.entries[:20]:
                 # 중복 방지
                 if entry.link in processed_urls:
@@ -212,19 +229,20 @@ def collect_rss_news():
                 # 기사 본문 추출은 필요한 경우에만 수행
                 if is_likely_political(entry.title):
                     try:
-                        # 간략 내용만 추출 (전체 내용 대신)
+                        # 간략 내용 추출
                         if hasattr(entry, 'summary'):
                             statement_data["content"] = entry.summary
                         elif hasattr(entry, 'description'):
                             statement_data["content"] = entry.description
                         else:
+                            # URL에서 간략 내용 가져오기
                             article_content = get_article_summary(entry.link)
                             if article_content:
                                 statement_data["content"] = article_content
                             else:
                                 continue  # 내용이 없으면 건너뛰기
                     except Exception as e:
-                        print(f"  Error fetching article content: {e}")
+                        print_progress(f"Error fetching article content: {e}")
                         continue  # 내용 추출 실패 시 건너뛰기
                 
                 all_statements.append(statement_data)
@@ -232,35 +250,35 @@ def collect_rss_news():
                 processed_titles.add(entry.title)
         
         except Exception as e:
-            print(f"Error processing feed {feed_url}: {e}")
+            print_progress(f"Error processing feed {feed_url}: {e}")
         
-        # 실행 시간 체크 - 제한 시간의 2/3를 넘으면 중단
-        if (time.time() - start_time) > (MAX_RUNTIME_SECONDS * 2/3):
-            print("Time limit approaching, skipping remaining RSS feeds")
+        # 실행 시간 체크 - 제한 시간의 1/3을 넘으면 중단
+        if (time.time() - start_time) > (MAX_RUNTIME_SECONDS / 3):
+            print_progress("Time limit approaching, skipping remaining RSS feeds")
             break
     
-    print(f"Total news items fetched from RSS: {len(all_statements)}")
+    print_progress(f"Total news items fetched from RSS: {len(all_statements)}")
     return all_statements
 
-# 정치 관련 기사인지 빠르게 확인 (새 함수)
+# 정치 관련 기사인지 빠르게 확인
 def is_likely_political(title):
     political_keywords = [
         "대통령", "국회", "의원", "정부", "청와대", "여당", "야당", "정책", "장관",
-        "민주당", "국민의힘", "위원장", "대표", "대선", "총선", "선거", "투표",
+        "민주당", "국민의힘", "위원장", "대표", "대선", "총선", "선거",
         "윤석열", "이재명", "홍준표", "한동훈", "조국"
     ]
     return any(keyword in title for keyword in political_keywords)
 
-# 기사 URL에서 요약 내용만 추출 (최적화)
+# 기사 URL에서 요약 내용만 추출
 def get_article_summary(url):
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        response = requests.get(url, headers=headers, timeout=5)  # 타임아웃 감소 (10→5초)
+        response = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 메타 설명만 추출 (전체 기사 내용 대신)
+        # 메타 설명 추출
         meta_desc = soup.select_one('meta[name="description"]')
         if meta_desc and meta_desc.get('content'):
             return meta_desc.get('content')
@@ -272,25 +290,66 @@ def get_article_summary(url):
             
         return ""
     except Exception as e:
-        print(f"Error extracting article summary: {e}")
+        print_progress(f"Error extracting article summary: {e}")
         return ""
 
-# 정치인 발언 수집 통합 함수 (최적화)
+# 기사 URL에서 전체 내용 추출
+def get_full_article_content(url):
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 본문 추출 시도 (여러 뉴스 사이트 지원)
+        article_selectors = [
+            'article', '.article_body', '#articleBody', 
+            '.news_view', '.article-body', '.article-content',
+            '#article-view-content-div', '.article_cont', '.news_contents',
+            '.newsct_article', '#news_body_area', '.article_txt', '#article'
+        ]
+        
+        for selector in article_selectors:
+            article_body = soup.select_one(selector)
+            if article_body:
+                # 불필요한 요소 제거
+                for tag in article_body.select('.reporter_area, .byline, .share_area, .article_ad, script, style'):
+                    tag.decompose()
+                
+                article_text = article_body.get_text(strip=True, separator=' ')
+                return article_text
+                
+        # 선택자로 찾지 못한 경우 메타 설명 사용
+        meta_desc = soup.select_one('meta[name="description"]')
+        if meta_desc and meta_desc.get('content'):
+            return meta_desc.get('content')
+            
+        # 그래도 없으면 제목 + 첫 단락
+        title = soup.select_one('title')
+        first_p = soup.select_one('p')
+        
+        content = ""
+        if title:
+            content += title.get_text(strip=True) + ". "
+        if first_p:
+            content += first_p.get_text(strip=True)
+            
+        return content
+    except Exception as e:
+        print_progress(f"Error extracting full article content: {e}")
+        return ""
+
+# 정치인 발언 수집 통합 함수
 def collect_politician_statements():
-    print("Starting to collect politician statements...")
-    
-    # 임시 저장 파일 확인
-    cached_results = load_temp_results()
-    if cached_results:
-        print(f"Found cached results with {len(cached_results)} statements")
-        return cached_results
+    print_progress("Starting to collect politician statements...")
     
     # 네이버 뉴스 API에서 뉴스 수집
     naver_news = get_naver_news()
     
-    # 시간 체크 - 네이버 API만으로 충분한지 확인
-    if len(naver_news) >= 20:  # 충분한 기사가 있으면 RSS 생략
-        print(f"Found {len(naver_news)} articles from Naver API, skipping RSS feeds")
+    # 실행 시간 확인
+    if (time.time() - start_time) > (MAX_RUNTIME_SECONDS / 2):
+        print_progress("Half of time limit reached, skipping RSS feeds")
         all_statements = naver_news
     else:
         # RSS 피드에서 뉴스 수집
@@ -298,16 +357,13 @@ def collect_politician_statements():
         # 모든 뉴스 통합
         all_statements = naver_news + rss_news
     
-    # 빠른 필터링 - 규칙 기반 (최적화)
+    # 빠른 필터링 - 규칙 기반
     all_statements = quick_filter_statements(all_statements)
-    print(f"After quick filtering: {len(all_statements)} articles")
-    
-    # 임시 저장
-    save_temp_results(all_statements)
+    print_progress(f"After quick filtering: {len(all_statements)} articles")
     
     return all_statements
 
-# 빠른 규칙 기반 필터링 (새 함수)
+# 빠른 규칙 기반 필터링
 def quick_filter_statements(statements):
     filtered = []
     
@@ -319,7 +375,7 @@ def quick_filter_statements(statements):
     
     # 발언/팩트체크 관련 키워드
     keywords = [
-        "발언", "주장", "강조", "밝혔", "말했", "반박", "비판", "지적",
+        "발언", "주장", "말했", "밝혔", "반박", "비판", "지적",
         "퍼센트", "증가", "감소", "통계", "수치", "사실", "팩트"
     ]
     
@@ -328,298 +384,349 @@ def quick_filter_statements(statements):
         content = article.get('content', '') if 'content' in article else ''
         
         # 정치인 이름 + 발언 키워드 필터링
-        if (any(politician in title for politician in politicians) and 
+        if (any(politician in title + " " + content for politician in politicians) and 
             any(keyword in title + " " + content for keyword in keywords)):
             
             # 팩트체크에 부적합한 패턴 체크
             if not any(pattern in title.lower() for pattern in ["하겠다", "계획", "예정", "공약", "제안"]):
                 filtered.append(article)
-                continue
-        
-        # 이미 정치인 필드가 있는 경우
-        if "politician" in article and article["politician"] in politicians:
-            filtered.append(article)
     
-    # 최대 30개로 제한 (GPT 호출 최소화)
+    # 최대 개수 제한 (효율성)
     return filtered[:30]
 
-# 임시 결과 저장 (새 함수)
-def save_temp_results(statements):
-    with open(TEMP_FILE, 'w', encoding='utf-8') as f:
-        json.dump(statements, f, ensure_ascii=False)
-
-# 임시 결과 로드 (새 함수)
-def load_temp_results():
-    try:
-        # 24시간 이상 지난 임시 파일은 무시
-        if os.path.exists(TEMP_FILE):
-            file_age = time.time() - os.path.getmtime(TEMP_FILE)
-            if file_age > 86400:  # 24시간
-                return None
-                
-        with open(TEMP_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return None
-
-# 기사에서 팩트체크 가능한 주장 추출 (최적화: GPT-3.5 사용)
-def extract_factcheckable_claim(article):
-    # 빠른 규칙 기반 체크 먼저 수행
-    if not is_factcheckable_by_rules(article):
-        return None
-        
+# GPT를 사용해 기사에서 팩트체크할 발언 추출 (1단계)
+def extract_factcheckable_claim_using_gpt(article):
     title = article.get('title', '')
     content = article.get('content', '')
-    combined_text = f"제목: {title}\n\n내용: {content[:1000]}"  # 최대 1000자로 제한 (2000→1000)
+    url = article.get('url', '')
     
-    # 팩트체크 예시 (간소화)
-    examples = """
-예시 1: "윤석열의 핵무장론 때문에 대한민국이 민감 국가로 분류되었다"
-예시 2: "특활비는 1원도 횡령한 사실이 없다"
-예시 3: "핵무장론은 국제 핵 비확산체제 NPT를 정면으로 위배하는 행위이다"
-"""
+    # 내용이 부족하면 전체 기사 가져오기
+    if len(content) < 200:
+        try:
+            full_content = get_full_article_content(url)
+            if full_content and len(full_content) > len(content):
+                content = full_content
+        except Exception as e:
+            print_progress(f"Error getting full content: {e}")
     
-    # 간소화된 프롬프트
-    prompt = f"""아래 기사에서 팩트체크 가능한 주장을 한 문장으로 추출하세요:
+    # 토큰 제한을 위해 내용 요약
+    if len(content) > 1500:
+        content = content[:1500] + "..."
+    
+    prompt = f"""다음 기사에서 팩트체크할 가치가 있는 정치인의 발언을 찾아주세요:
 
-{combined_text}
+기사 제목: {title}
+기사 내용: 
+{content}
 
-팩트체크 가능한 주장 조건:
-1. 수치/통계 포함 주장 (예: "물가 20% 상승")
-2. 인과관계 주장 (예: "A정책으로 B결과 발생")
-3. 사실관계 주장 (예: "특활비 횡령 없다")
-4. 정치인들 간 주장이 상충하는 경우
+팩트체크할 만한 발언은 다음과 같은 특성을 가집니다:
+1. 구체적인 수치나 통계를 포함한 주장
+2. 과거 사실에 대한 명확한 주장
+3. 현재 상황에 대한 검증 가능한 주장
+4. 인과관계에 대한 주장
+5. 정치인들 간에 상반된 주장이 있는 경우
 
-팩트체크하기 좋은 주장 예시: {examples}
+개인 의견, 미래 계획, 가정은 팩트체크 대상이 아닙니다.
 
-다음 형식으로만 응답: "주장: [구체적인 주장]" 또는 "주장 없음"
+다음 JSON 형식으로만 응답해주세요:
+{{
+    "has_factcheckable_claim": true/false,
+    "speaker": "발언자 이름",
+    "speaker_position": "발언자의 직위",
+    "party": "소속 정당",
+    "statement": "발언 내용",
+    "context": "발언 상황/맥락"
+}}
+
+발언이 없거나 팩트체크하기에 적합하지 않으면 has_factcheckable_claim을 false로 설정하세요.
 """
     
     try:
-        # GPT-3.5-turbo 사용 (GPT-4 대신)
+        # GPT-3.5 사용 (비용 효율성)
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # GPT-4 대신 더 경제적인 모델 사용
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "당신은 기사에서 팩트체크 가능한 주장을 추출하는 전문가입니다."},
+                {"role": "system", "content": "당신은 정치 기사에서 팩트체크할 발언을 정확히 식별하는 전문가입니다."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2,
-            max_tokens=100  # 토큰 수 제한 (비용 절감)
-        )
-        
-        extracted_text = response.choices[0].message.content.strip()
-        
-        # 결과 파싱
-        if "주장 없음" in extracted_text:
-            return None
-        
-        # "주장: " 이후의 텍스트 추출
-        match = re.search(r'주장:\s*(.*)', extracted_text)
-        if match:
-            claim = match.group(1).strip()
-            print(f"Extracted claim: {claim}")
-            return claim
-        else:
-            return None
-            
-    except Exception as e:
-        print(f"Error extracting claim: {e}")
-        return None
-
-# 규칙 기반으로 팩트체크 가능성 확인 (새 함수)
-def is_factcheckable_by_rules(article):
-    title = article.get('title', '')
-    content = article.get('content', '')
-    combined = title + " " + content
-    
-    # 수치 관련 패턴
-    if re.search(r'\d+\.?\d*\s*%|\d+\.?\d*\s*배|\d+\s*조|\d+\s*억', combined):
-        return True
-        
-    # 인용구 패턴
-    quotes = re.findall(r'"([^"]*)"', combined)
-    if any(re.search(r'\d+|증가|감소|상승|하락|실패|성공', quote) for quote in quotes):
-        return True
-        
-    # 논쟁/반박 패턴
-    if re.search(r'반박|논쟁|공방|엇갈린|다르다고|아니라고', combined):
-        return True
-        
-    # 사실 관계 패턴
-    if re.search(r'사실[은는이가]|거짓|허위|틀렸|잘못|오류|착각', combined):
-        return True
-    
-    return False
-
-# GPT를 사용한 팩트체크 (최적화: 핵심 기능만 GPT-4 유지)
-def fact_check_with_structured_output(article):
-    # 주장이 있는지 확인
-    claim = article.get('claim')
-    if not claim:
-        # 주장이 없으면 추출 시도 (GPT-3.5 사용)
-        claim = extract_factcheckable_claim(article)
-        if not claim:
-            return None  # 주장을 추출할 수 없으면 스킵
-    
-    # 발언자와 정당 추출 (규칙 기반으로 변경)
-    politician, party = extract_politician_and_party_by_rules(article)
-    
-    # 발언 상황 컨텍스트 추출 (간소화)
-    context = get_simplified_context(article)
-    
-    # 팩트체크 프롬프트 (간소화)
-    prompt = f"""다음 주장의 사실 여부를 객관적으로 검증해주세요:
-
-주장: "{claim}"
-제목: "{article.get('title', '')}"
-
-발언자: {politician if politician else '확인 필요'}
-정당: {party if party else '확인 필요'}
-발언 상황: {context}
-
-검증 결과는 다음 중 하나로 표시하세요:
-"사실" / "대체로 사실" / "일부 사실" / "사실 아님"
-
-검증 설명에는 다음을 포함하세요:
-- 주장 관련 실제 통계/수치
-- 주장의 정확성 또는 오류 증거
-- 가능한 경우 출처/증거 언급
-
-아래 JSON 형식으로만 응답해주세요:
-{{
-    "politician": "발언자 이름",
-    "party": "소속 정당",
-    "context": "발언 상황",
-    "statement": "검증할 주장",
-    "verification_result": "사실|대체로 사실|일부 사실|사실 아님",
-    "explanation": "검증 결과 상세 설명"
-}}
-"""
-    
-    try:
-        # 최종 팩트체크는 GPT-4 사용 (핵심 품질 유지)
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "당신은 정치인 발언의 사실 관계를 객관적으로 검증하는 팩트체크 전문가입니다."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2
+            max_tokens=500  # 토큰 제한
         )
         
         response_text = response.choices[0].message.content.strip()
         
-        # JSON 추출 시도
-        try:
-            # 정규식으로 JSON 블록 찾기
-            json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(1))
-            else:
-                # JSON 구조가 완전하지 않은 경우, 전체 응답을 파싱 시도
-                result = json.loads(response_text)
-                
-            # 필수 필드 검증
-            required_fields = ["politician", "party", "statement", "verification_result", "explanation"]
-            if all(field in result for field in required_fields):
-                # 날짜 추가
-                result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
-                # 컨텍스트 추가 (없는 경우)
-                if "context" not in result:
-                    result["context"] = context
+        # JSON 추출
+        json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group(1))
+            
+            if result.get("has_factcheckable_claim", False):
+                print_progress(f"Found claim by {result.get('speaker')}: {result.get('statement')[:50]}...")
                 return result
             else:
-                # 필드 누락 시 기본값 사용
-                return create_fallback_factcheck_result(article, claim, politician, party, context)
-                
-        except json.JSONDecodeError:
-            # JSON 파싱 실패 시 기본값 사용
-            return create_fallback_factcheck_result(article, claim, politician, party, context)
+                return None
+        else:
+            return None
             
     except Exception as e:
-        print(f"Error during fact-checking: {e}")
-        # 오류 발생 시 기본 응답
-        return create_fallback_factcheck_result(article, claim, politician, party, context)
+        print_progress(f"Error extracting claim: {e}")
+        return None
 
-# 규칙 기반 정치인/정당 추출 (최적화)
-def extract_politician_and_party_by_rules(article):
-    title = article.get('title', '')
-    content = article.get('content', '')
+# 웹 검색을 통한 추가 정보 수집 (2단계-1)
+def web_search_for_factcheck(query):
+    """팩트체크를 위한 웹 검색 수행"""
     
-    # 정치인 정보 매핑
-    politician_party_map = {
-        "윤석열": "국민의힘",
-        "이재명": "더불어민주당",
-        "한동훈": "국민의힘",
-        "홍준표": "국민의힘",
-        "유승민": "국민의힘",
-        "안철수": "국민의힘",
-        "조국": "조국혁신당",
-        "이낙연": "더불어민주당",
-        "우상호": "더불어민주당",
-        "이준석": "개혁신당"
+    # 캐시 확인
+    cache_key = query.strip().lower()
+    if cache_key in search_cache:
+        print_progress(f"Using cached search results for: {query}")
+        return search_cache[cache_key]
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # 텍스트에서 정치인 이름 찾기
-    text = title + " " + content
-    for politician in politician_party_map:
-        if politician in text:
-            return politician, politician_party_map[politician]
-            
-    # 이미 article에 정치인 필드가 있는 경우
-    if "politician" in article:
-        politician = article["politician"]
-        if politician in politician_party_map:
-            return politician, politician_party_map[politician]
-            
-    return None, None
-
-# 간소화된 컨텍스트 추출 (최적화)
-def get_simplified_context(statement):
-    content = statement.get('content', '')
+    # 검색 쿼리 인코딩
+    encoded_query = requests.utils.quote(query)
     
-    # 가장 흔한 컨텍스트만 체크
-    if "SNS" in content or "페이스북" in content or "트위터" in content:
-        return "SNS 발언"
-    elif "국회" in content:
-        return "국회 발언"
-    elif "기자회견" in content:
-        return "기자회견"
-    elif "인터뷰" in content:
-        return "인터뷰"
+    # 네이버 검색
+    search_url = f"https://search.naver.com/search.naver?query={encoded_query}"
     
-    # 기본값
-    return "언론 보도"
+    try:
+        response = requests.get(search_url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 검색 결과 추출
+        search_results = []
+        
+        # 뉴스 결과
+        news_items = soup.select(".news_area")
+        for item in news_items[:3]:  # 상위 3개만
+            title_elem = item.select_one(".news_tit")
+            desc_elem = item.select_one(".dsc_txt")
+            link_elem = title_elem.get('href') if title_elem else None
+            
+            if title_elem and desc_elem and link_elem:
+                result = {
+                    "title": title_elem.text.strip(),
+                    "description": desc_elem.text.strip(),
+                    "url": link_elem
+                }
+                search_results.append(result)
+        
+        # 웹문서 결과
+        web_items = soup.select(".total_area")
+        for item in web_items[:2]:  # 상위 2개만
+            title_elem = item.select_one(".total_tit")
+            desc_elem = item.select_one(".total_dsc")
+            link_elem = title_elem.find('a').get('href') if title_elem and title_elem.find('a') else None
+            
+            if title_elem and desc_elem and link_elem:
+                result = {
+                    "title": title_elem.text.strip(),
+                    "description": desc_elem.text.strip(),
+                    "url": link_elem
+                }
+                search_results.append(result)
+                
+        # 캐시에 저장
+        search_cache[cache_key] = search_results
+        
+        # 캐시 크기 제한
+        if len(search_cache) > 100:
+            # 랜덤하게 20개 항목 제거
+            keys_to_remove = random.sample(list(search_cache.keys()), 20)
+            for key in keys_to_remove:
+                search_cache.pop(key, None)
+        
+        return search_results
+        
+    except Exception as e:
+        print_progress(f"Error in web search: {e}")
+        return []
 
-# 팩트체크 실패 시 기본 결과 생성 (간소화)
-def create_fallback_factcheck_result(article, claim, politician, party, context):
-    return {
-        "politician": politician if politician else "확인 필요",
-        "party": party if party else "확인 필요",
-        "context": context,
-        "statement": claim,
-        "verification_result": "확인 불가",
-        "explanation": "현재 이 주장을 검증하기 위한 충분한 정보가 확인되지 않았습니다. 추가적인 자료가 필요합니다.",
-        "date": datetime.datetime.now().strftime("%Y.%m.%d")
-    }
+# 관련 있는 검색 결과만 필터링 (2단계-2)
+def filter_relevant_results(search_results, statement):
+    """발언과 관련 있는 검색 결과만 필터링"""
+    
+    # 검색 결과가 없으면 빈 리스트 반환
+    if not search_results:
+        return []
+    
+    # 관련성 판단을 위한 핵심 키워드 추출
+    statement_words = set(re.findall(r'\w+', statement.lower()))
+    
+    relevant_results = []
+    for result in search_results:
+        title = result.get('title', '')
+        description = result.get('description', '')
+        
+        # 제목과 설명에서 키워드 추출
+        result_words = set(re.findall(r'\w+', (title + ' ' + description).lower()))
+        
+        # 키워드 겹침 정도 계산
+        common_words = statement_words.intersection(result_words)
+        
+        # 최소 2개 이상의 키워드가 겹치면 관련 있는 것으로 판단
+        if len(common_words) >= 2:
+            relevant_results.append(result)
+    
+    # 최대 3개까지 제한
+    return relevant_results[:3]
 
-# 팩트체크 결과 품질 검증 (간소화)
+# 추가 정보를 바탕으로 발언 검증 (2단계-3)
+def verify_claim_with_additional_info(claim_info, additional_info):
+    """추가 정보를 바탕으로 발언 검증"""
+    
+    speaker = claim_info.get("speaker", "")
+    statement = claim_info.get("statement", "")
+    context = claim_info.get("context", "")
+    speaker_position = claim_info.get("speaker_position", "")
+    party = claim_info.get("party", "")
+    
+    # 추가 정보를 텍스트로 변환
+    additional_info_text = ""
+    for idx, info in enumerate(additional_info, 1):
+        additional_info_text += f"정보 {idx}:\n제목: {info.get('title', '')}\n내용: {info.get('description', '')}\n출처: {info.get('url', '')}\n\n"
+    
+    # 추가 정보가 없는 경우
+    if not additional_info_text:
+        additional_info_text = "추가 정보가 없습니다. 기본 정보만으로 판단해주세요."
+    
+    prompt = f"""다음 정치인의 발언을 추가 정보를 바탕으로 팩트체크해주세요:
+
+발언자: {speaker} ({speaker_position})
+소속 정당: {party}
+발언 내용: "{statement}"
+발언 맥락: {context}
+
+추가 정보:
+{additional_info_text}
+
+위 발언과 추가 정보를 바탕으로 발언의 사실 여부를 검증하고, 다음 중 하나로 판정해주세요:
+- 사실: 발언이 완전히 사실임
+- 대체로 사실: 발언이 대체로 사실이지만 약간의 과장이나 누락이 있음
+- 일부 사실: 발언의 일부만 사실임
+- 사실 아님: 발언이 사실과 다름
+- 확인 불가: 현재 정보로는 사실 여부를 확인할 수 없음
+
+다음 JSON 형식으로 응답해주세요:
+{{
+    "speaker": "{speaker}",
+    "speaker_position": "{speaker_position}",
+    "party": "{party}",
+    "statement": "{statement}",
+    "verification_result": "사실|대체로 사실|일부 사실|사실 아님|확인 불가",
+    "explanation": "검증 결과에 대한 상세한 설명과 근거",
+    "sources": ["참고한 출처 URL"]
+}}
+"""
+    
+    try:
+        # GPT-4 사용 (팩트체크 정확도를 위해)
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "당신은 객관적이고 정확한 팩트체크를 수행하는 전문가입니다."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=1000  # 토큰 제한 (충분한 설명 위해)
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        # JSON 추출
+        json_match = re.search(r'(\{.*\})', response_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group(1))
+            
+            # 날짜 추가
+            result["date"] = datetime.datetime.now().strftime("%Y.%m.%d")
+            result["context"] = context
+            
+            return result
+        else:
+            print_progress("Failed to extract JSON from verification response")
+            return None
+            
+    except Exception as e:
+        print_progress(f"Error in verification: {e}")
+        return None
+
+# 2단계 팩트체크 수행 - 통합 함수
+def two_stage_factcheck(article):
+    """2단계 팩트체크 수행 - 발언 추출 후 검증"""
+    
+    # 1단계: 발언 추출
+    claim_info = extract_factcheckable_claim_using_gpt(article)
+    
+    if not claim_info:
+        return None  # 팩트체크할 발언 없음
+    
+    # 2단계: 추가 정보 수집 및 검증
+    speaker = claim_info.get("speaker", "")
+    statement = claim_info.get("statement", "")
+    
+    # 추가 정보 수집을 위한 검색 쿼리 구성
+    search_queries = [
+        f"{speaker} {statement[:30]}",  # 발언자와 발언 내용 앞부분
+        f"{statement[:40]} 사실"  # 발언 내용과 사실
+    ]
+    
+    additional_info = []
+    
+    # 각 쿼리로 검색하여 추가 정보 수집
+    for query in search_queries:
+        try:
+            # 웹 검색 수행
+            search_results = web_search_for_factcheck(query)
+            
+            # 관련 있는 정보만 필터링
+            relevant_results = filter_relevant_results(search_results, statement)
+            
+            additional_info.extend(relevant_results)
+            
+            # 충분한 정보를 얻었으면 중단
+            if len(additional_info) >= 3:
+                break
+                
+        except Exception as e:
+            print_progress(f"Error searching for additional info: {e}")
+    
+    # 추가 정보를 포함하여 팩트체크 수행
+    factcheck_result = verify_claim_with_additional_info(claim_info, additional_info)
+    
+    return factcheck_result
+
+# 팩트체크 결과 품질 검증
 def validate_factcheck_quality(factcheck_result):
-    # 간단한 품질 체크만 수행
+    """팩트체크 결과의 품질 검증"""
+    
+    # 필수 필드 확인
+    required_fields = ["speaker", "statement", "verification_result", "explanation"]
+    if not all(field in factcheck_result for field in required_fields):
+        return False
+    
+    # 검증 결과가 확인 불가인 경우 낮은 품질로 간주
     if factcheck_result.get("verification_result") == "확인 불가":
         return False
-        
+    
+    # 설명이 너무 짧은 경우 낮은 품질로 간주
     explanation = factcheck_result.get("explanation", "")
     if len(explanation) < 50:
         return False
-        
+    
     return True
 
-# 팩트체크 카드 HTML 생성 (유지)
+# 팩트체크 카드 HTML 생성
 def generate_fact_check_card_html(fact_check):
+    """팩트체크 결과를 HTML 카드로 변환"""
+    
     party_class = ""
     avatar_class = ""
     
+    # 정당에 따른 스타일 클래스 설정
     if fact_check["party"] == "더불어민주당":
         party_class = "democrat-indicator"
         avatar_class = "democrat-avatar"
@@ -640,7 +747,7 @@ def generate_fact_check_card_html(fact_check):
         avatar_class = "ppp-avatar"
     
     # 정치인 이름의 첫 글자 추출
-    first_letter = fact_check["politician"][0] if fact_check["politician"] else "?"
+    first_letter = fact_check["speaker"][0] if fact_check["speaker"] else "?"
     
     # 검증 결과에 따른 스타일 적용
     verification_result = fact_check.get("verification_result", "확인 불가")
@@ -657,6 +764,10 @@ def generate_fact_check_card_html(fact_check):
     else:
         result_class = "result-unverifiable"
     
+    # 정치인 직위 표시 추가
+    speaker_position = fact_check.get("speaker_position", "")
+    politician_display = f'{fact_check["speaker"]} {speaker_position}'.strip()
+    
     # HTML 카드 생성
     card_html = "<!-- 팩트체크 카드 -->\n"
     card_html += f'<div class="falsehood-card" data-party="{fact_check["party"]}">\n'
@@ -665,7 +776,7 @@ def generate_fact_check_card_html(fact_check):
     card_html += '<div class="politician-info">\n'
     card_html += '<div class="politician-name">\n'
     card_html += f'<span class="party-indicator {party_class}"></span>\n'
-    card_html += f'{fact_check["politician"]}\n'
+    card_html += f'{politician_display}\n'
     card_html += '</div>\n'
     card_html += f'<div class="party-name-small">{fact_check["party"]}</div>\n'
     card_html += '</div>\n'
@@ -692,15 +803,29 @@ def generate_fact_check_card_html(fact_check):
     card_html += '<span class="correction-label">검증 설명:</span>\n'
     card_html += f'{fact_check["explanation"]}\n'
     card_html += '</div>\n'
+    
+    # 출처 표시
+    if "sources" in fact_check and fact_check["sources"]:
+        card_html += '<div class="falsehood-sources">\n'
+        card_html += '<span class="sources-label">참고 출처:</span>\n'
+        card_html += '<ul>\n'
+        for source in fact_check["sources"]:
+            if source and source.startswith("http"):
+                card_html += f'<li><a href="{source}" target="_blank">{source}</a></li>\n'
+        card_html += '</ul>\n'
+        card_html += '</div>\n'
+    
     card_html += '</div>\n'
     
     return card_html
 
-# 기존 발언 카드에서 이미 처리된 발언을 추출하는 함수 (최적화)
+# 기존 발언 카드에서 이미 처리된 발언을 추출하는 함수
 def extract_existing_statements(html_content):
+    """HTML에서 기존 팩트체크 발언 추출"""
+    
     existing_statements = []
     
-    # 정규식으로 간단히 처리 (BeautifulSoup 대신)
+    # 정규식으로 기존 발언 추출
     falsehood_contents = re.findall(r'<div class="falsehood-content">\s*(.*?)\s*</div>', html_content, re.DOTALL)
     
     for content in falsehood_contents:
@@ -710,26 +835,45 @@ def extract_existing_statements(html_content):
     
     return existing_statements
 
-# HTML 파일 업데이트 - 최적화
-def update_html_file():
+# 임시 파일 정리
+def cleanup_temp_files():
+    """임시 파일 정리"""
     try:
-        # 실행 시간 체크 시작
-        start_time = time.time()
+        # 오래된 파일 삭제
+        for file_path in [TEMP_FILE, SEARCH_CACHE_FILE]:
+            if os.path.exists(file_path):
+                file_age = time.time() - os.path.getmtime(file_path)
+                if file_age > 86400 * 7:  # 7일 이상 된 파일만 삭제
+                    os.remove(file_path)
+                    print_progress(f"Removed old temporary file: {file_path}")
+    except Exception as e:
+        print_progress(f"Error cleaning up temporary files: {e}")
+
+# HTML 파일 업데이트 메인 함수
+def update_html_file():
+    """HTML 파일 업데이트 메인 함수"""
+    
+    global start_time
+    start_time = time.time()
+    
+    try:
+        # 초기 설정
+        initialize()
         
         # 정치인 발언 수집
         statements = collect_politician_statements()
         
         if not statements:
-            print("No statements collected, no updates will be made.")
+            print_progress("No statements collected, no updates will be made.")
             return
         
         # 현재 HTML 파일 읽기
         with open('index.html', 'r', encoding='utf-8') as file:
             content = file.read()
         
-        # 기존 발언 추출 (최적화된 함수 사용)
+        # 기존 발언 추출
         existing_statements = extract_existing_statements(content)
-        print(f"Found {len(existing_statements)} existing statements")
+        print_progress(f"Found {len(existing_statements)} existing statements")
         
         # CSS 스타일 추가 (검증 결과 표시용) - 필요한 경우에만
         if '.verification-result' not in content:
@@ -765,12 +909,33 @@ def update_html_file():
             background-color: #E2E3E5;
             color: #383D41;
         }
+        
+        .falsehood-sources {
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        
+        .sources-label {
+            font-weight: bold;
+        }
+        
+        .falsehood-sources ul {
+            margin-top: 0.25rem;
+            padding-left: 1.5rem;
+        }
+        
+        .falsehood-sources a {
+            color: #007bff;
+            text-decoration: none;
+            word-break: break-all;
+        }
         """
             # </style> 태그를 찾아서 그 앞에 스타일 추가
             style_end_pos = content.find('</style>')
             if style_end_pos > 0:
                 content = content[:style_end_pos] + style_addition + content[style_end_pos:]
-                print("Added verification result styles to CSS")
+                print_progress("Added verification result styles to CSS")
                 
                 # 업데이트된 HTML 내용으로 파일 쓰기
                 with open('index.html', 'w', encoding='utf-8') as file:
@@ -780,81 +945,65 @@ def update_html_file():
                 with open('index.html', 'r', encoding='utf-8') as file:
                     content = file.read()
             else:
-                print("Could not find </style> tag to add new styles")
+                print_progress("Could not find </style> tag to add new styles")
         
-        # 처리된 카드 수와 HTML 저장
-        all_cards_html = ""
-        processed_cards = 0
+        # 팩트체크 결과 저장
+        factcheck_results = []
         
-        # 중복 방지를 위한 임시 저장소
-        processed_statements = set()
+        # 효율적 팩트체크를 위해 기사 수 제한
+        max_articles_to_process = 10
         
-        # 목표: 하루에 카드 1개만 생성
-        target_cards = 1
-        max_attempts = 10  # 최대 시도 횟수 감소 (20→10)
+        # 처리할 기사 랜덤 선택 (다양성 확보)
+        articles_to_process = random.sample(statements, min(max_articles_to_process, len(statements)))
         
-        # 효율적인 팩트체크를 위해 사전 정렬
-        statements = prioritize_statements(statements)
-        
-        attempts = 0
-        
-        for statement in statements:
-            # 시간 제한 체크 - 너무 오래 걸리면 중단
-            if (time.time() - start_time) > (MAX_RUNTIME_SECONDS * 0.8):  # 80% 시간 사용 시 중단
-                print("Time limit approaching, stopping processing")
-                break
-                
-            if processed_cards >= target_cards or attempts >= max_attempts:
+        # 각 기사에 대해 2단계 팩트체크 수행
+        for article in articles_to_process:
+            # 시간 제한 체크
+            elapsed_time = time.time() - start_time
+            if elapsed_time > (MAX_RUNTIME_SECONDS * 0.8):
+                print_progress(f"Time limit approaching ({elapsed_time:.1f}s), stopping processing")
                 break
             
-            attempts += 1
-            
-            # 이미 HTML에 있는 발언인지 빠르게 확인
-            statement_content = statement.get('claim', statement.get('title', ''))
-            if any(statement_content in existing for existing in existing_statements):
-                print(f"Skipping duplicate statement: {statement_content[:30]}...")
-                continue
-                
-            # 이번 실행에서 처리한 발언인지 확인
-            if statement_content in processed_statements:
+            # 중복 방지
+            url = article.get('url', '')
+            if url in processed_urls:
                 continue
             
-            # 주장 추출 (없으면)
-            if 'claim' not in statement:
-                claim = extract_factcheckable_claim(statement)
-                if claim:
-                    statement['claim'] = claim
-                else:
-                    print(f"Skipping - no factcheckable claim: {statement.get('title', '')[:30]}...")
+            print_progress(f"Processing article: {article.get('title', '')[:50]}...")
+            
+            # 2단계 팩트체크 수행
+            factcheck_result = two_stage_factcheck(article)
+            
+            # 결과 처리
+            if factcheck_result:
+                # 중복 확인
+                new_statement = factcheck_result.get("statement", "")
+                if any(existing in new_statement or new_statement in existing for existing in existing_statements):
+                    print_progress("Skipping duplicate statement")
                     continue
-            
-            # 팩트체크 수행
-            fact_check = fact_check_with_structured_output(statement)
-            
-            # 팩트체크 실패 시 스킵
-            if not fact_check:
-                print(f"Skipping - fact check failed: {statement.get('title', '')[:30]}...")
-                continue
                 
-            # 팩트체크 품질 검증
-            if not validate_factcheck_quality(fact_check):
-                print(f"Skipping - low quality fact check: {statement.get('title', '')[:30]}...")
-                continue
-                
-            # 팩트체크 카드 HTML 생성
-            card_html = generate_fact_check_card_html(fact_check)
-            all_cards_html += card_html
-            
-            # 이번에 처리한 발언 기록
-            processed_statements.add(statement_content)
-            processed_cards += 1
-            
-            print(f"Successfully processed card: {fact_check['statement'][:50]}...")
+                # 품질 검증
+                if validate_factcheck_quality(factcheck_result):
+                    print_progress(f"Successfully verified claim: {factcheck_result.get('verification_result')}")
+                    factcheck_results.append(factcheck_result)
+                    processed_urls.add(url)
+                    
+                    # 목표 달성 시 중단 (하루에 1개만)
+                    if len(factcheck_results) >= 1:
+                        break
+                else:
+                    print_progress("Factcheck result failed quality validation")
         
-        # 카드 없으면 종료
-        if processed_cards == 0:
-            print("No cards were generated. No updates will be made.")
+        # 결과가 없으면 종료
+        if not factcheck_results:
+            print_progress("No factcheck results generated, no updates will be made.")
             return
+        
+        # 팩트체크 카드 HTML 생성
+        all_cards_html = ""
+        for result in factcheck_results:
+            card_html = generate_fact_check_card_html(result)
+            all_cards_html += card_html
         
         # 마커 확인
         insert_marker = "<!-- FACT_CHECK_CARDS -->"
@@ -868,7 +1017,7 @@ def update_html_file():
             
             # 마지막 업데이트 날짜 갱신
             today = datetime.datetime.now().strftime("%Y.%m.%d")
-            print(f"Added {processed_cards} new fact check cards on {today}")
+            print_progress(f"Added {len(factcheck_results)} new fact check cards on {today}")
             
             # HTML 파일에서 제목 및 레이블 텍스트 업데이트
             new_content = new_content.replace("허위 발언 트래커", "정치인 발언 검증 서비스")
@@ -878,68 +1027,30 @@ def update_html_file():
             # 업데이트된 콘텐츠 저장
             with open('index.html', 'w', encoding='utf-8') as file:
                 file.write(new_content)
-                print("Successfully saved updated HTML file")
+                print_progress("Successfully saved updated HTML file")
         else:
-            print(f"Could not find marker '{insert_marker}' in the HTML file")
+            print_progress(f"Could not find marker '{insert_marker}' in the HTML file")
+        
+        # 캐시 저장
+        save_cache()
+        
     except Exception as e:
-        print(f"Error updating HTML file: {e}")
+        print_progress(f"Error updating HTML file: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        # 실행 시간 출력
+        elapsed_time = time.time() - start_time
+        print_progress(f"Total execution time: {elapsed_time:.2f} seconds")
 
-# 팩트체크할 기사 우선순위 지정 (최적화)
-def prioritize_statements(statements):
-    def score_statement(statement):
-        score = 0
-        title = statement.get('title', '')
-        content = statement.get('content', '')
-        
-        # 숫자 포함 여부
-        if re.search(r'\d+', title + ' ' + content):
-            score += 3
-            
-        # 핵심 정치인 언급 여부
-        core_politicians = ["윤석열", "이재명", "한동훈", "홍준표", "조국"]
-        if any(politician in title for politician in core_politicians):
-            score += 4
-            
-        # 인용구 포함 여부
-        if '"' in title or '"' in content:
-            score += 2
-            
-        # 논쟁적 주제 포함 여부
-        hot_topics = ["핵무장", "특활비", "민감 국가", "NPT", "탄핵", "계엄"]
-        if any(topic in title + ' ' + content for topic in hot_topics):
-            score += 5
-            
-        return score
-    
-    # 점수 기준으로 정렬
-    return sorted(statements, key=score_statement, reverse=True)
-
-# 임시 파일 정리 (새 함수)
-def cleanup_temp_files():
-    try:
-        if os.path.exists(TEMP_FILE):
-            os.remove(TEMP_FILE)
-            print(f"Removed temporary file: {TEMP_FILE}")
-    except Exception as e:
-        print(f"Error cleaning up temporary files: {e}")
-
-# 메인 함수 실행
+# 메인 실행 함수
 if __name__ == "__main__":
     try:
-        # 시간 제한 설정
-        start_execution_time = time.time()
-        
-        # 메인 업데이트 실행
+        # HTML 파일 업데이트
         update_html_file()
         
         # 임시 파일 정리
         cleanup_temp_files()
-        
-        # 총 실행 시간 출력
-        total_time = time.time() - start_execution_time
-        print(f"Total execution time: {total_time:.2f} seconds")
         
     except Exception as e:
         print(f"Error in main execution: {e}")
